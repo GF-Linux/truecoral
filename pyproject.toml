@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "truecoral"
+dynamic = ["version"]
+description = "True Coral: o que cada linha do seu código Python fez de verdade — valores, laços, condições, saídas e erros"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "Jared" }]
+
+[project.scripts]
+coral = "truecoral.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "truecoral.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
