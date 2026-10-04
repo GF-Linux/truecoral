@@ -12,6 +12,9 @@ license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [{ name = "Jared" }]
 
+[project.urls]
+Repositorio = "https://github.com/GF-Linux/truecoral"
+
 [project.scripts]
 coral = "truecoral.cli:main"
 
