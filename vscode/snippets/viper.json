@@ -1,0 +1,8 @@
+{
+	// viper: a chamada já nasce com o lambda escrito. Tab passa de um campo para o próximo.
+	"viper · replacement": {
+		"prefix": "replacement",
+		"body": "replacement(${1:lista}, '${2:palavra}', lambda x: ${3:condição})$0",
+		"description": "viper: troca por 'palavra' cada item da lista em que a condição for verdadeira"
+	}
+}

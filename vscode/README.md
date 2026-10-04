@@ -12,4 +12,18 @@ escreveu e, se der erro, onde e por quê — em português.
 Comandos: `True Coral: analisar este arquivo` · `limpar as marcações` · `ligar ou desligar ao salvar`.
 Configuração: `truecoral.pythonPath`, `truecoral.tempo`, `truecoral.aoSalvar`.
 
+## Junto com a viper
+
+A extensão traz também o que a [viper](https://github.com/GF-Linux/viper), a biblioteca de funções
+próprias, precisa no editor. Assim nada é configurado à mão em cada máquina:
+
+- **snippet:** digite `replacement` e aperte Tab. A chamada nasce como
+  `replacement(lista, 'palavra', lambda x: condição)`, e o Tab passa de um campo para o próximo;
+- **o nome dos parâmetros em cinza** dentro das chamadas, pelo Pylance
+  (`python.analysis.inlayHints.callArgumentNames: all`);
+- **os snippets primeiro** na lista de sugestões, só em arquivos Python. Sem isso, o Tab pegaria a
+  sugestão do Pylance, sem o `lambda`.
+
+São valores padrão: se você mudar qualquer um nas suas configurações, vale o seu.
+
 Parte do projeto [True Coral](https://github.com/GF-Linux/truecoral).

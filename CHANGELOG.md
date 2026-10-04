@@ -1,5 +1,12 @@
 # Mudanças
 
+## 0.3.0
+
+- **a extensão leva a configuração junto:** o snippet da viper (`replacement` + Tab, com o `lambda x:`
+  já escrito), o nome dos parâmetros em cinza nas chamadas (Pylance) e os snippets primeiro na lista,
+  em arquivos Python. Instalou a extensão, veio tudo; nada para exportar de máquina para máquina.
+- ícone
+
 ## 0.2.0
 
 Correções que a bateria de testes (`tests/bateria/`) encontrou:

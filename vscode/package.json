@@ -2,7 +2,7 @@
   "name": "truecoral",
   "displayName": "True Coral",
   "description": "O que cada linha do seu código Python fez de verdade: valores, laços, condições, saídas e erros, ao lado da linha.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "GF-Linux",
   "license": "MIT",
   "repository": {
@@ -22,7 +22,9 @@
     "live",
     "inline values",
     "learning",
-    "pandas"
+    "pandas",
+    "viper",
+    "snippets"
   ],
   "activationEvents": [
     "onLanguage:python"
@@ -62,9 +64,22 @@
           "description": "Limite de tempo, em segundos. Um laço infinito para aqui."
         }
       }
+    },
+    "snippets": [
+      {
+        "language": "python",
+        "path": "./snippets/viper.json"
+      }
+    ],
+    "configurationDefaults": {
+      "python.analysis.inlayHints.callArgumentNames": "all",
+      "[python]": {
+        "editor.snippetSuggestions": "top"
+      }
     }
   },
   "scripts": {
-    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py"
-  }
+    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py && cp ../CHANGELOG.md CHANGELOG.md"
+  },
+  "icon": "icone.png"
 }
