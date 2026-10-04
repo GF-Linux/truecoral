@@ -12,10 +12,12 @@ const path = require("path");
 
 // a ordem aqui é a ordem dos chips na linha
 const TIPOS = {
+  chamada:  { cor: "#d4b4f0", fundo: "rgba(190,150,230,0.10)" },
   laco:     { cor: "#d4b4f0", fundo: "rgba(190,150,230,0.14)" },
   condicao: { cor: "#d4b4f0", fundo: "rgba(190,150,230,0.10)" },
   valor:    { cor: "#8ec5f5", fundo: "rgba(74,163,239,0.14)" },
   aviso:    { cor: "#f2c56b", fundo: "rgba(240,180,60,0.14)" },
+  excecao:  { cor: "#f5a86b", fundo: "rgba(240,138,60,0.14)" },
   saida:    { cor: "#8fdcaa", fundo: "rgba(110,200,140,0.14)" },
   retorna:  { cor: "#7d8592", fundo: undefined },
   erro:     { cor: "#f08a80", fundo: "rgba(235,100,90,0.16)" },

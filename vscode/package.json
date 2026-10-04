@@ -2,7 +2,7 @@
   "name": "truecoral",
   "displayName": "True Coral",
   "description": "O que cada linha do seu código Python fez de verdade: valores, laços, condições, saídas e erros, ao lado da linha.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "GF-Linux",
   "license": "MIT",
   "repository": {

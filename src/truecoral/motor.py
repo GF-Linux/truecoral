@@ -18,6 +18,7 @@ passos, e o input() é desligado (não há teclado).
 """
 import ast
 import builtins
+import reprlib
 import json
 import os
 import sys
@@ -71,6 +72,7 @@ class Mapa(ast.NodeVisitor):
         self.fonte = fonte
         self.alvos, self.lacos, self.condicoes, self.breaks = {}, {}, {}, {}
         self.prints, self.reducoes, self.inicios = set(), {}, set()
+        self.retornos, self.yields, self.excepts = set(), set(), set()
         self._laco_atual = []
 
     def _bloco(self, corpo):
@@ -148,14 +150,31 @@ class Mapa(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
+    def visit_Return(self, no):
+        self.inicios.add(no.lineno)
+        self.retornos.add(no.lineno)
+        self.generic_visit(no)
+
+    def visit_ExceptHandler(self, no):
+        self.inicios.add(no.lineno)
+        self.excepts.add(no.lineno)
+        self.generic_visit(no)
+
     def visit_Expr(self, no):
         v = no.value
+        if isinstance(v, (ast.Yield, ast.YieldFrom)):
+            self.yields.add(no.lineno)
         if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "print":
             self.prints.add(no.lineno)
         self.generic_visit(no)
 
 
 # ── 2. resumir um valor em poucas palavras ──────────────────────────────────
+
+_REPR = reprlib.Repr()
+_REPR.maxlist = _REPR.maxtuple = _REPR.maxset = _REPR.maxfrozenset = 8
+_REPR.maxdict, _REPR.maxstring, _REPR.maxother, _REPR.maxlevel = 6, 60, 60, 3
+
 
 def _curto(texto, n=60):
     texto = " ".join(str(texto).split())
@@ -179,7 +198,7 @@ def resumir(v):
             return f"{len(v)} valores{nome}", f"Series {v.dtype}", (f"{vaz} vazio{'s' if vaz != 1 else ''} (NaN)"
                                                                    if vaz else None)
         if isinstance(v, (list, tuple, set, frozenset, dict, str)):
-            return _curto(repr(v)), f"{tipo} · {len(v)}", None
+            return _curto(_REPR.repr(v)), f"{tipo} · {len(v)}", None     # repr limitado: não relê a lista toda
         if isinstance(v, float) and v != v:
             return "nan", tipo, "NaN: um número que não existe"
         if hasattr(v, "dtype") and getattr(v, "shape", None) == ():           # número do numpy
@@ -197,6 +216,9 @@ def resumir(v):
 
 # ── 3. rodar e registrar ────────────────────────────────────────────────────
 
+GERADOR = 0x20 | 0x80 | 0x200        # co_flags: gerador, corrotina, gerador assíncrono
+
+
 class Registro:
     def __init__(self, mapa, limite_tempo, limite_passos):
         self.mapa = mapa
@@ -206,8 +228,12 @@ class Registro:
         self.passos = 0
         self.inicio = time.perf_counter()
         self.limite_tempo, self.limite_passos = limite_tempo, limite_passos
-        self.saidas_laco = {}
         self.limite = None
+        # por laço: voltas e por onde saiu, cada vez que saiu
+        self.lacos = {n: {"voltas": 0, "saidas": {}, "breaks": set()} for n in mapa.lacos}
+        self.chamadas = {}
+        self.geradores_vistos = set()
+        self.excecoes = []          # [linha, tipo, mensagem, destino, id(valor)] — o destino se resolve depois
 
     def _linha(self, n):
         return self.linhas.setdefault(n, {"vezes": 0})
@@ -224,12 +250,21 @@ class Registro:
             h.append(texto)
         reg["ultimo"] = texto
 
+    def _saiu(self, laco, como):
+        saidas = self.lacos[laco]["saidas"]
+        saidas[como] = saidas.get(como, 0) + 1
+
     def _finalizar(self, quadro, n, proxima):
         mapa = self.mapa
         laco = mapa.lacos.get(n)
-        comecou_volta = laco is None or laco["tipo"] != "for" or (
-            proxima is not None and laco["corpo"][0] <= proxima <= laco["corpo"][1])
-        for nome in (mapa.alvos.get(n, ()) if comecou_volta else ()):
+        if laco is not None:                     # o cabeçalho do laço: começou uma volta, ou saiu?
+            ini, fim = laco["corpo"]
+            if proxima is not None and ini <= proxima <= fim:
+                self.lacos[n]["voltas"] += 1
+            else:
+                self._saiu(n, "condição falsa" if laco["tipo"] == "while" else "fim")
+                return                           # o for não guarda o alvo quando a sequência acabou
+        for nome in mapa.alvos.get(n, ()):
             if nome in quadro.f_locals:
                 self._guardar_valor(n, nome, quadro.f_locals[nome])
             elif nome in quadro.f_globals:
@@ -251,9 +286,17 @@ class Registro:
         c["True" if verdadeiro else "False"] += 1
 
     def rastrear(self, quadro, evento, arg):
-        if quadro.f_code.co_filename != self.arquivo:
+        codigo = quadro.f_code
+        if codigo.co_filename != self.arquivo:
             return None
-        self.estados[quadro] = {"pendente": None, "condicao": None}
+        if codigo.co_name != "<module>":         # quantas vezes cada função foi chamada
+            gerador = codigo.co_flags & GERADOR
+            if not gerador or id(quadro) not in self.geradores_vistos:
+                self.chamadas[codigo.co_firstlineno] = self.chamadas.get(codigo.co_firstlineno, 0) + 1
+                if gerador:
+                    self.geradores_vistos.add(id(quadro))
+        if quadro not in self.estados:
+            self.estados[quadro] = {"pendente": None, "condicao": None, "excecao": None}
         return self.local
 
     def local(self, quadro, evento, arg):
@@ -265,28 +308,53 @@ class Registro:
                 raise Parada()
         est = self.estados.get(quadro)
         if est is None:
-            est = self.estados[quadro] = {"pendente": None, "condicao": None}
+            est = self.estados[quadro] = {"pendente": None, "condicao": None, "excecao": None}
+        mapa = self.mapa
         if evento == "line":
             n = quadro.f_lineno
+            if est["excecao"] is not None:       # o erro levantado na linha anterior foi parar aqui
+                exc = est["excecao"]
+                exc[3] = ("tratado", n) if n in mapa.excepts else ("seguiu", n)
+                est["excecao"] = None
+                est["pendente"] = None            # a linha que levantou o erro não terminou
             if est["pendente"] is not None:
                 self._finalizar(quadro, est["pendente"], n)
-                if est["pendente"] in self.mapa.condicoes:
+                if est["pendente"] in mapa.condicoes:
                     est["condicao"] = est["pendente"]
             if est["condicao"] is not None:
-                ini, fim = self.mapa.condicoes[est["condicao"]]
+                ini, fim = mapa.condicoes[est["condicao"]]
                 self._decidir(est["condicao"], ini <= n <= fim)
                 est["condicao"] = None
             self._linha(n)["vezes"] += 1
-            if n in self.mapa.breaks:
-                self.saidas_laco[self.mapa.breaks[n]] = n
+            if n in mapa.breaks:
+                laco = mapa.breaks[n]
+                self._saiu(laco, "break")
+                self.lacos[laco]["breaks"].add(n)
             est["pendente"] = n
             self.atual = n
+        elif evento == "exception":
+            tipo, valor = arg[0], arg[1]
+            exc = [quadro.f_lineno, tipo.__name__, _curto(str(valor), 120), ("subiu", None), id(valor)]
+            self.excecoes.append(exc)
+            est["excecao"] = exc
         elif evento == "return":
-            if est["pendente"] is not None:
-                self._finalizar(quadro, est["pendente"], None)
-                if est["pendente"] in self.mapa.condicoes:
-                    self._decidir(est["pendente"], False)
-            self.estados.pop(quadro, None)
+            p = est["pendente"]
+            if est["excecao"] is not None:        # o erro subiu para quem chamou: a linha não terminou
+                est["excecao"] = None
+            elif p is not None:
+                self._finalizar(quadro, p, None)
+                if p in mapa.condicoes:
+                    self._decidir(p, False)
+                if p in mapa.retornos or p in mapa.yields:
+                    self._guardar_valor(p, "↩", arg)
+                if p in mapa.retornos and not quadro.f_code.co_flags & GERADOR:
+                    for laco, info in mapa.lacos.items():      # um return dentro do laço é uma saída dele
+                        if info["corpo"][0] <= p <= info["corpo"][1]:
+                            self._saiu(laco, "return")
+            if not quadro.f_code.co_flags & GERADOR or p not in mapa.yields:
+                self.estados.pop(quadro, None)
+            else:
+                est["pendente"] = None
         return self.local
 
 
@@ -350,6 +418,7 @@ def analisar(arquivo, limite_tempo=10.0, limite_passos=5_000_000):
         resultado["limite"] = reg.limite
     except SystemExit as e:
         resultado["saiu"] = {"linha": reg.atual, "codigo": e.code}
+        resultado["_erro_id"] = id(e)
     except BaseException as e:                       # o erro do código é um resultado, não uma falha
         linha = reg.atual
         tb = e.__traceback__
@@ -359,26 +428,40 @@ def analisar(arquivo, limite_tempo=10.0, limite_passos=5_000_000):
             tb = tb.tb_next
         tipo = type(e).__name__
         resultado["erro"] = {"linha": linha, "tipo": tipo, "mensagem": str(e), "explica": EXPLICA.get(tipo, "")}
+        resultado["_erro_id"] = id(e)
     finally:
         sys.settrace(None)
         sys.stdout, sys.stderr, builtins.input, sys.argv = stdout, stderr, entrada, argv
     resultado["tempo_ms"] = round((time.perf_counter() - inicio) * 1000, 1)
     resultado["passos"] = reg.passos
 
-    # os laços: voltas = quantas vezes a primeira linha do corpo rodou
+    # o erro que derrubou o programa não foi tratado: sai da lista dos tratados
+    erro_id = resultado.pop("_erro_id", None)
+    for linha, tipo, msg, destino, ident in reg.excecoes:
+        if ident == erro_id or tipo == "Parada":
+            continue
+        reg_l = reg._linha(linha).setdefault("excecoes", {})
+        e = reg_l.setdefault(tipo, {"vezes": 0, "mensagem": msg, "destinos": {}})
+        e["vezes"] += 1
+        chave = f"{destino[0]}:{destino[1]}" if destino[1] else destino[0]
+        e["destinos"][chave] = e["destinos"].get(chave, 0) + 1
+
+    lim = resultado["limite"]
+    erro = resultado["erro"]
     for n, laco in mapa.lacos.items():
         if n not in reg.linhas:
             continue
-        voltas = reg.linhas.get(laco["corpo"][0], {}).get("vezes", 0)
-        if n in reg.saidas_laco:
-            saida = {"como": "break", "linha": reg.saidas_laco[n]}
-        elif resultado["limite"] and n <= resultado["limite"]["linha"] <= laco["corpo"][1]:
-            saida = {"como": "limite"}
-        elif laco["tipo"] == "while":
-            saida = {"como": "condição falsa"}
-        else:
-            saida = {"como": "fim"}
-        reg.linhas[n]["laco"] = {"tipo": laco["tipo"], "voltas": voltas, "saida": saida}
+        info = reg.lacos[n]
+        saidas = dict(info["saidas"])
+        if lim and n <= lim["linha"] <= laco["corpo"][1]:
+            saidas["limite"] = saidas.get("limite", 0) + 1
+        elif erro and erro.get("linha") and n <= erro["linha"] <= laco["corpo"][1]:
+            saidas["erro"] = saidas.get("erro", 0) + 1
+        reg.linhas[n]["laco"] = {"tipo": laco["tipo"], "voltas": info["voltas"], "saidas": saidas,
+                                 "execucoes": sum(saidas.values()), "breaks": sorted(info["breaks"])}
+    for primeira, vezes in reg.chamadas.items():
+        if primeira in reg.linhas or primeira in mapa.inicios:
+            reg._linha(primeira)["chamadas"] = vezes
     for n in mapa.prints:
         if n in reg.linhas:
             reg.linhas[n]["retorna"] = "None"
@@ -429,6 +512,38 @@ def _evolucao(v):
     return " → ".join(h) + f" → … → {ultimo} final ({total}×)"
 
 
+COMO_SAIU = {"fim": "terminou a sequência", "condição falsa": "saiu: condição falsa", "return": "saiu pelo return",
+             "erro": "interrompido pelo erro"}
+
+
+def _chip_laco(laco, cond, resultado):
+    """↻ N voltas · por onde saiu. Rodou várias vezes (laço dentro de laço)? Diz quantas e soma."""
+    voltas, saidas, execs = laco["voltas"], laco["saidas"], laco["execucoes"]
+    plural = "s" if voltas != 1 else ""
+    if "limite" in saidas:
+        lim = resultado.get("limite") or {}
+        motivo = "de tempo" if lim.get("motivo") == "tempo" else "de passos"
+        if laco["tipo"] == "while" and cond and cond["False"] == 0:
+            texto = f"↻ {voltas} volta{plural} · parou no limite {motivo}: a condição nunca deu False (laço infinito?)"
+        else:
+            texto = f"↻ {voltas} volta{plural} · parou no limite {motivo} antes de terminar"
+        return {"tipo": "aviso", "texto": texto}
+
+    def como(chave, vezes, sozinho):
+        if chave == "break":
+            linhas = ", ".join(str(b) for b in laco["breaks"])
+            base = f"saiu pelo break · linha {linhas}"
+        else:
+            base = COMO_SAIU.get(chave, chave)
+        return base if sozinho else f"{base} ×{vezes}"
+
+    if execs <= 1:
+        chave = next(iter(saidas), "fim")
+        return {"tipo": "laco", "texto": f"↻ {voltas} volta{plural} · {como(chave, 1, True)}"}
+    partes = " · ".join(como(k, v, False) for k, v in saidas.items())
+    return {"tipo": "laco", "texto": f"↻ {execs} execuções · {voltas} volta{plural} no total · {partes}"}
+
+
 def montar_chips(resultado):
     """Acrescenta a cada linha: chips = [{"tipo", "texto"}] e detalhes = [texto do mouse/rodapé]."""
     erro = resultado.get("erro") or {}
@@ -447,20 +562,30 @@ def montar_chips(resultado):
         else:
             laco = linha.get("laco")
             if laco:
-                s = laco["saida"]
-                como = {"fim": "terminou a sequência", "condição falsa": "saiu: condição falsa",
-                        "break": f"saiu pelo break · linha {s.get('linha')}",
-                        "limite": "parou no limite (laço infinito?)"}[s["como"]]
-                v = laco["voltas"]
-                chips.append({"tipo": "aviso" if s["como"] == "limite" else "laco",
-                              "texto": f"↻ {v} volta{'s' if v != 1 else ''} · {como}"})
+                chips.append(_chip_laco(laco, linha.get("condicao"), resultado))
+            if linha.get("chamadas"):
+                k = linha["chamadas"]
+                chips.append({"tipo": "chamada", "texto": f"chamada {k}×"})
+            for tipo_exc, e in linha.get("excecoes", {}).items():
+                destinos = []
+                for chave, vezes in e["destinos"].items():
+                    como, _, onde = chave.partition(":")
+                    texto = {"tratado": f"tratado na linha {onde}", "seguiu": f"seguiu para a linha {onde}",
+                             "subiu": "subiu para quem chamou"}.get(como, como)
+                    destinos.append(texto + (f" ×{vezes}" if vezes > 1 and len(e["destinos"]) > 1 else ""))
+                vezes = e["vezes"]
+                chips.append({"tipo": "excecao",
+                              "texto": f"⚡ {tipo_exc}{f' ×{vezes}' if vezes > 1 else ''} → {' · '.join(destinos)}"})
+                detalhes.append(f"{tipo_exc}: {e['mensagem']}")
             cond = linha.get("condicao")
-            if cond and not (laco and laco["tipo"] == "while" and cond["False"] <= 1
-                             and laco["saida"]["como"] != "limite"):
+            if cond and not (laco and laco["tipo"] == "while"):
                 chips.append({"tipo": "condicao", "texto": f"True ×{cond['True']} · False ×{cond['False']}"})
             valores = linha.get("valores", {})
             for nome, v in valores.items():
-                rotulo = f"{nome}: " if (len(valores) > 1 or laco) else "= "
+                if nome == "↩":
+                    rotulo = "↩ "
+                else:
+                    rotulo = f"{nome}: " if (len(valores) > 1 or laco) else "= "
                 chips.append({"tipo": "valor", "texto": f"{rotulo}{_evolucao(v)} · {v['tipo']}"})
                 if v.get("aviso"):
                     chips.append({"tipo": "aviso", "texto": f"! {v['aviso']}"})

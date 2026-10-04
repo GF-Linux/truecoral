@@ -44,6 +44,38 @@ def test_sintaxe():
     assert r["erro"]["tipo"] == "SyntaxError" and r["erro"]["linha"] == 2
 
 
+BAT = RAIZ / "tests" / "bateria"
+
+
+def test_laco_dentro_de_laco():
+    r = montar_chips(analisar(BAT / "04_lacos.py"))
+    assert "↻ 3 voltas · terminou a sequência" in _chips(r, 2)
+    assert "↻ 3 execuções · 9 voltas no total · saiu pelo break · linha 5 ×3" in _chips(r, 3)
+
+
+def test_laco_longo_nao_e_infinito():
+    r = montar_chips(analisar(BAT / "13_desempenho.py", limite_tempo=1.0))
+    texto = " ".join(_chips(r, 2))
+    assert "antes de terminar" in texto and "infinito" not in texto
+
+
+def test_erro_tratado():
+    r = montar_chips(analisar(BAT / "03_try.py"))
+    assert "⚡ ValueError → tratado na linha 4" in _chips(r, 3)
+    assert "⚡ ZeroDivisionError → tratado na linha 10" in _chips(r, 9)
+
+
+def test_return_e_chamadas():
+    r = montar_chips(analisar(BAT / "01_funcoes.py"))
+    assert "chamada 5×" in _chips(r, 9)
+    assert "↩ 2 → 6 → 24 → 120 final · int" in _chips(r, 12)
+
+
+def test_sys_exit_nao_vira_erro_tratado():
+    r = montar_chips(analisar(BAT / "08_exit.py"))
+    assert not any("⚡" in c for n in r["linhas"] for c in _chips(r, int(n)))
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

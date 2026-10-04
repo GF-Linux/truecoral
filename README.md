@@ -16,6 +16,8 @@ Dois jeitos de ver, o mesmo motor por trás:
 | `= valor · tipo` | o que a linha guardou; num laço, a evolução até o valor final |
 | `↻ N voltas · …` | quantas voltas o laço deu e por onde saiu: fim, condição falsa, break ou limite |
 | `True ×a · False ×b` | quantas vezes a condição deu cada resposta |
+| `↩ valor` | o que a função devolveu (`return`, `yield`); no `def`, quantas vezes foi chamada |
+| `⚡ Erro → tratado na linha N` | um erro que aconteceu e foi tratado por um `try/except` |
 | `› texto` | o que o print escreveu (e `retorna None`, apagado, à parte) |
 | `! …` | um fato que merece atenção: vazios (NaN) num DataFrame, um NaN |
 | `✕ Erro` | onde parou, com a explicação em português e a mensagem original |
@@ -35,4 +37,4 @@ O motor roda com o Python do seu projeto (o `.venv` da pasta, o ambiente escolhi
 o `python3`) e acompanha cada linha com `sys.settrace`. A extensão é fina de propósito: se o
 Python mudar, o conserto é no motor — que é Python e tem teste.
 
-Status: 0.1.0, em teste. Testado no Fedora 44 com Python 3.14 e VS Code 1.140.
+Status: 0.2.0, em teste. O que mudou: [CHANGELOG](CHANGELOG.md). Testado no Fedora 44 com Python 3.14 e VS Code 1.140.

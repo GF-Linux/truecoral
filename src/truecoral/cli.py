@@ -63,7 +63,7 @@ def rodar_motor(arquivo, python, tempo):
 # O texto de cada chip vem pronto do motor; aqui só entra a cor.
 
 COR_DO_TIPO = {"valor": "azul", "saida": "verde", "laco": "lilas", "condicao": "lilas", "aviso": "amarelo",
-               "erro": "vermelho", "naorodou": "cinza", "retorna": "cinza"}
+               "erro": "vermelho", "naorodou": "cinza", "retorna": "cinza", "chamada": "lilas", "excecao": "amarelo"}
 
 
 def desenhar(r):
@@ -93,8 +93,8 @@ def desenhar(r):
                 saida.append(" " * (5 + larg_cod) + c("↳ " + d, "cinza"))
     if erro and not erro.get("linha"):
         saida += ["", c(f"✕ {erro['tipo']}: {erro['mensagem']}", "vermelho")]
-    saida += ["", c("= o que a linha guardou   › o que o print escreveu   ↻ laço   ! fato que merece atenção   "
-                    "✕ erro   · não rodou", "cinza")]
+    saida += ["", c("= o que a linha guardou   ↩ o que a função devolveu   › o que o print escreveu   ↻ laço   "
+                    "⚡ erro tratado   ! fato que merece atenção   ✕ erro   · não rodou", "cinza")]
     return "\n".join(saida)
 
 
