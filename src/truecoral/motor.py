@@ -405,7 +405,7 @@ def main(args):
         else:
             print(f"motor: argumento desconhecido: {args[i]}", file=sys.stderr)
             return 2
-    resultado = analisar(arquivo, tempo, passos)
+    resultado = montar_chips(analisar(arquivo, tempo, passos))
     texto = json.dumps(resultado, ensure_ascii=False, indent=1)
     if saida:
         with open(saida, "w", encoding="utf-8") as fh:
@@ -415,5 +415,74 @@ def main(args):
     return 0
 
 
+
+# ── 4. os chips: o texto de cada marcação, montado num lugar só ────────────
+# O comando coral e a extensão do VS Code leem daqui: as mesmas palavras nos dois.
+
+def _evolucao(v):
+    h, total, ultimo = v["historico"], v["total"], v["ultimo"]
+    if total == 1:
+        return h[0]
+    if total <= len(h) + 1:
+        passos = h + ([ultimo] if total > len(h) else [])
+        return " → ".join(passos) + " final"
+    return " → ".join(h) + f" → … → {ultimo} final ({total}×)"
+
+
+def montar_chips(resultado):
+    """Acrescenta a cada linha: chips = [{"tipo", "texto"}] e detalhes = [texto do mouse/rodapé]."""
+    erro = resultado.get("erro") or {}
+    linha_erro = erro.get("linha")
+    for chave, linha in resultado["linhas"].items():
+        n = int(chave)
+        chips, detalhes = [], []
+        if linha_erro == n:
+            chips.append({"tipo": "erro", "texto": f"✕ {erro['tipo']}"})
+            if erro.get("explica"):
+                detalhes.append(erro["explica"])
+            detalhes.append(f"{erro['tipo']}: {erro['mensagem']}")
+        elif linha.get("vezes") == 0:
+            if not (linha_erro and n > linha_erro):
+                chips.append({"tipo": "naorodou", "texto": "· não rodou"})
+        else:
+            laco = linha.get("laco")
+            if laco:
+                s = laco["saida"]
+                como = {"fim": "terminou a sequência", "condição falsa": "saiu: condição falsa",
+                        "break": f"saiu pelo break · linha {s.get('linha')}",
+                        "limite": "parou no limite (laço infinito?)"}[s["como"]]
+                v = laco["voltas"]
+                chips.append({"tipo": "aviso" if s["como"] == "limite" else "laco",
+                              "texto": f"↻ {v} volta{'s' if v != 1 else ''} · {como}"})
+            cond = linha.get("condicao")
+            if cond and not (laco and laco["tipo"] == "while" and cond["False"] <= 1
+                             and laco["saida"]["como"] != "limite"):
+                chips.append({"tipo": "condicao", "texto": f"True ×{cond['True']} · False ×{cond['False']}"})
+            valores = linha.get("valores", {})
+            for nome, v in valores.items():
+                rotulo = f"{nome}: " if (len(valores) > 1 or laco) else "= "
+                chips.append({"tipo": "valor", "texto": f"{rotulo}{_evolucao(v)} · {v['tipo']}"})
+                if v.get("aviso"):
+                    chips.append({"tipo": "aviso", "texto": f"! {v['aviso']}"})
+                if v["total"] > 1:
+                    detalhes.append(f"{nome}: {v['total']} valores — os primeiros {', '.join(v['historico'])}; "
+                                    f"o último {v['ultimo']}")
+            if "saida" in linha:
+                texto = linha["saida"].rstrip("\n").splitlines()
+                total = max(linha.get("linhas_saida", len(texto)), len(texto))
+                extra = f" (+{total - 1} linha{'s' if total - 1 != 1 else ''})" if total > 1 else ""
+                chips.append({"tipo": "saida", "texto": f"› {(texto[0] if texto else '')[:60]}{extra}"})
+                if total > 1:
+                    detalhes.append("o que o print escreveu:\n" + "\n".join(texto[:12])
+                                    + ("\n…" if total > 12 else ""))
+            if "retorna" in linha:
+                chips.append({"tipo": "retorna", "texto": f"retorna {linha['retorna']}"})
+            if linha.get("detalhe"):
+                detalhes.insert(0, linha["detalhe"])
+        linha["chips"], linha["detalhes"] = chips, detalhes
+    if linha_erro and str(linha_erro) not in resultado["linhas"]:
+        resultado["linhas"][str(linha_erro)] = {"vezes": 0, "chips": [{"tipo": "erro", "texto": f"✕ {erro['tipo']}"}],
+                                                "detalhes": [erro.get("explica", ""), f"{erro['tipo']}: {erro['mensagem']}"]}
+    return resultado
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

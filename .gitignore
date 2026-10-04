@@ -5,3 +5,8 @@ build/
 dist/
 .venv/
 .pytest_cache/
+
+# a extensão leva uma cópia do motor, feita na hora de empacotar
+vscode/motor.py
+vscode/*.vsix
+node_modules/

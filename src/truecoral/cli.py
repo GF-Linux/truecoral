@@ -59,59 +59,19 @@ def rodar_motor(arquivo, python, tempo):
     return json.loads(r.stdout)
 
 
-# ── os chips ────────────────────────────────────────────────────────────────
+# ── o desenho no terminal ──────────────────────────────────────────────────
+# O texto de cada chip vem pronto do motor; aqui só entra a cor.
 
-def evolucao(v):
-    h, total, ultimo = v["historico"], v["total"], v["ultimo"]
-    if total == 1:
-        return c(h[0], "azul", "negrito")
-    if total <= len(h) + 1:
-        passos = h + ([ultimo] if total > len(h) else [])
-        return c(" → ".join(passos[:-1]) + " → ", "azul") + c(passos[-1], "azul", "negrito") + c(" final", "cinza")
-    return (c(" → ".join(h) + " → … → ", "azul") + c(ultimo, "azul", "negrito")
-            + c(f" final ({total}×)", "cinza"))
+COR_DO_TIPO = {"valor": "azul", "saida": "verde", "laco": "lilas", "condicao": "lilas", "aviso": "amarelo",
+               "erro": "vermelho", "naorodou": "cinza", "retorna": "cinza"}
 
 
-def chips(linha, n):
-    partes = []
-    laco = linha.get("laco")
-    if laco:
-        saida = laco["saida"]
-        como = {"fim": "terminou a sequência", "condição falsa": "saiu: condição falsa",
-                "break": f"saiu pelo break · linha {saida.get('linha')}",
-                "limite": "parou no limite (laço infinito?)"}[saida["como"]]
-        cor = "amarelo" if saida["como"] == "limite" else "lilas"
-        partes.append(c(f"↻ {laco['voltas']} volta{'s' if laco['voltas'] != 1 else ''}", cor, "negrito")
-                      + c(f" · {como}", cor))
-    cond = linha.get("condicao")
-    if cond and not (laco and laco["tipo"] == "while" and cond["False"] <= 1 and saida["como"] != "limite"):
-        partes.append(c(f"True ×{cond['True']}", "verde") + c(" · ", "cinza") + c(f"False ×{cond['False']}", "vermelho"))
-    valores = linha.get("valores", {})
-    for nome, v in valores.items():
-        rotulo = c(f"{nome}: ", "cinza") if (len(valores) > 1 or laco) else c("= ", "azul")
-        partes.append(rotulo + evolucao(v) + c(f"  {v['tipo']}", "cinza"))
-        if v.get("aviso"):
-            partes.append(c(f"! {v['aviso']}", "amarelo"))
-    if "saida" in linha:
-        texto = linha["saida"].rstrip("\n").splitlines()
-        primeira = texto[0] if texto else ""
-        total = max(linha.get("linhas_saida", len(texto)), len(texto))
-        extra = f"  (+{total - 1} linha{'s' if total - 1 != 1 else ''})" if total > 1 else ""
-        partes.append(c("› ", "verde") + c(primeira[:60], "verde") + c(extra, "cinza"))
-    if "retorna" in linha:
-        partes.append(c(f"retorna {linha['retorna']}", "cinza"))
-    return partes
-
-
-def desenhar(r, mostrar_tudo=False):
+def desenhar(r):
     with open(r["arquivo"], encoding="utf-8") as fh:
         codigo = fh.read().splitlines()
-    largura_tela = shutil.get_terminal_size((140, 40)).columns
     larg_cod = min(max((len(x) for x in codigo), default=10) + 2, 56)
-    erro = r.get("erro")
-    limite = r.get("limite")
-    nome = os.path.basename(r["arquivo"])
-    cab = [c("True Coral", "vermelho", "negrito"), nome, f"Python {r['python']}"]
+    erro, limite = r.get("erro"), r.get("limite")
+    cab = [c("True Coral", "vermelho", "negrito"), os.path.basename(r["arquivo"]), f"Python {r['python']}"]
     if "tempo_ms" in r:
         cab.append(f"{r['tempo_ms']:.0f} ms" if r["tempo_ms"] >= 1 else "<1 ms")
     if limite:
@@ -119,27 +79,18 @@ def desenhar(r, mostrar_tudo=False):
     if erro:
         cab.append(c(f"✕ {erro['tipo']} na linha {erro['linha']}", "vermelho"))
     saida = [c(" · ", "cinza").join(cab), ""]
-    linhas = r["linhas"]
     for i, texto in enumerate(codigo, 1):
         cod = texto if len(texto) <= larg_cod - 2 else texto[: larg_cod - 3] + "…"
-        num = c(f"{i:>3}  ", "cinza")
-        info = linhas.get(str(i))
-        pedacos = []
-        if erro and erro.get("linha") == i:
-            pedacos.append(c(f"✕ {erro['tipo']}", "vermelho", "negrito"))
-        elif info:
-            if info.get("vezes") == 0 and not (erro and i > (erro.get("linha") or 0)):
-                pedacos.append(c("· não rodou", "cinza"))
-            else:
-                pedacos += chips(info, i)
-        linha_txt = num + cod.ljust(larg_cod) + (c("   ", "cinza").join(pedacos))
-        saida.append(linha_txt)
-        if info and info.get("detalhe"):
-            saida.append(" " * (5 + larg_cod) + c("↳ " + info["detalhe"], "cinza"))
-        if erro and erro.get("linha") == i:
-            if erro.get("explica"):
-                saida.append(" " * 5 + c("✕ ", "vermelho") + c(erro["explica"], "vermelho"))
-            saida.append(" " * 7 + c(f"{erro['tipo']}: {erro['mensagem']}", "cinza"))
+        info = r["linhas"].get(str(i), {})
+        pedacos = [c(ch["texto"], COR_DO_TIPO.get(ch["tipo"], "cinza"), *(("negrito",) if ch["tipo"] in ("erro", "laco")
+                                                                       else ()))
+                   for ch in info.get("chips", [])]
+        saida.append(c(f"{i:>3}  ", "cinza") + cod.ljust(larg_cod) + "   ".join(pedacos))
+        for d in info.get("detalhes", []):
+            if erro and erro.get("linha") == i:
+                saida.append(" " * 5 + c(d, "vermelho" if d == erro.get("explica") else "cinza"))
+            elif "\n" not in d and not d.startswith(tuple(f"{k}:" for k in info.get("valores", {}))):
+                saida.append(" " * (5 + larg_cod) + c("↳ " + d, "cinza"))
     if erro and not erro.get("linha"):
         saida += ["", c(f"✕ {erro['tipo']}: {erro['mensagem']}", "vermelho")]
     saida += ["", c("= o que a linha guardou   › o que o print escreveu   ↻ laço   ! fato que merece atenção   "

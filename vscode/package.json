@@ -1,0 +1,70 @@
+{
+  "name": "truecoral",
+  "displayName": "True Coral",
+  "description": "O que cada linha do seu código Python fez de verdade: valores, laços, condições, saídas e erros, ao lado da linha.",
+  "version": "0.1.0",
+  "publisher": "GF-Linux",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GF-Linux/truecoral"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Education",
+    "Visualization"
+  ],
+  "keywords": [
+    "python",
+    "live",
+    "inline values",
+    "learning",
+    "pandas"
+  ],
+  "activationEvents": [
+    "onLanguage:python"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "truecoral.analisar",
+        "title": "True Coral: analisar este arquivo"
+      },
+      {
+        "command": "truecoral.limpar",
+        "title": "True Coral: limpar as marcações"
+      },
+      {
+        "command": "truecoral.alternar",
+        "title": "True Coral: ligar ou desligar ao salvar"
+      }
+    ],
+    "configuration": {
+      "title": "True Coral",
+      "properties": {
+        "truecoral.aoSalvar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Analisar o arquivo Python a cada salvamento."
+        },
+        "truecoral.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python que roda o seu código. Vazio: o ambiente escolhido na extensão Python, o .venv da pasta ou o python3."
+        },
+        "truecoral.tempo": {
+          "type": "number",
+          "default": 10,
+          "description": "Limite de tempo, em segundos. Um laço infinito para aqui."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py"
+  }
+}
