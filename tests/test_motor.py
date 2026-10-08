@@ -76,6 +76,15 @@ def test_sys_exit_nao_vira_erro_tratado():
     assert not any("⚡" in c for n in r["linhas"] for c in _chips(r, int(n)))
 
 
+
+def test_print_de_funcao_sai_na_linha_do_print(tmp=None):
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        arq = Path(d) / "calc.py"
+        arq.write_text("def calculadora(a, b):\n    return a + b\n\nprint(calculadora(1, 2))\n")
+        r = montar_chips(analisar(arq))
+        assert "› 3" in _chips(r, 4) and "› 3" not in _chips(r, 2)
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

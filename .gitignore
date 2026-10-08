@@ -8,6 +8,7 @@ dist/
 
 # a extensão leva uma cópia do motor, feita na hora de empacotar
 vscode/motor.py
+vscode/leitura.py
 vscode/*.vsix
 vscode/CHANGELOG.md
 node_modules/

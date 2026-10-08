@@ -1,9 +1,11 @@
-// True Coral — a extensão só desenha. Quem roda e registra é o motor.py (Python, biblioteca padrão).
+// True Coral — a extensão só desenha. Quem lê e quem roda são dois programas em Python (biblioteca padrão).
 //
-// Ao salvar um arquivo Python: roda o motor com o Python do seu projeto, lê o JSON e põe ao lado
-// de cada linha os chips que o motor montou. Ao passar o mouse, os detalhes. Erro vira também
-// sublinhado vermelho (e entra no painel de Problemas). Ao editar, as marcações somem: elas
-// valem para o arquivo salvo, e as linhas mudam de lugar enquanto você digita.
+// A cada tecla: a leitura.py lê o texto, ainda sem salvar, e diz o que cada linha faz ("— ...") e o
+// erro de escrita traduzido ("✕ ..."). Não roda nada do seu código.
+// Ao salvar: o motor.py roda o arquivo com o Python do seu projeto e põe ao lado de cada linha o que
+// ela produziu (= › ↩ ↻ ...). Ao passar o mouse, os detalhes. Erro vira também sublinhado vermelho (e
+// entra no painel de Problemas). Ao editar, os valores somem: eles valem para o arquivo salvo, e as
+// linhas mudam de lugar enquanto você digita. A descrição fica, porque é refeita a cada tecla.
 
 const vscode = require("vscode");
 const cp = require("child_process");
@@ -22,14 +24,40 @@ const TIPOS = {
   retorna:  { cor: "#7d8592", fundo: undefined },
   erro:     { cor: "#f08a80", fundo: "rgba(235,100,90,0.16)" },
   naorodou: { cor: "#6b7280", fundo: undefined, italico: true },
+  escrita:  { cor: "#f08a80", fundo: "rgba(235,100,90,0.16)" },          // da leitura: a cada tecla
+  descricao:{ cor: "#7d8592", fundo: undefined, italico: true },
 };
+const DA_LEITURA = new Set(["escrita", "descricao"]);
 
 let decoracoes = {};
 let diagnosticos;
 let barra;
 let processos = new Map();     // arquivo → processo do motor em andamento
+let leituras = new Map();      // arquivo → { processo, temporizador }
+let ultimaLeitura = new Map(); // arquivo → a última leitura desenhada (redesenhada depois dos valores)
+let pythons = new Map();       // arquivo → o Python achado (a leitura roda a cada tecla: achar uma vez só)
+
+// O VS Code põe na linha os textos de tipos diferentes na ordem do número interno de cada tipo, comparado
+// como TEXTO: o tipo 12 vem antes do 4. Com todos os números do mesmo tamanho, a ordem é a de criação —
+// a de TIPOS: os valores primeiro, a descrição por último.
+function numeroDo(tipo) {
+  const m = /(\d+)$/.exec(tipo.key || "");
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+function alinharNumeros(quantos) {
+  const sondas = [vscode.window.createTextEditorDecorationType({})];
+  let k = numeroDo(sondas[0]);
+  while (String(k + 1).length !== String(k + quantos).length && sondas.length < 2000) {
+    const s = vscode.window.createTextEditorDecorationType({});
+    sondas.push(s);
+    k = numeroDo(s);
+  }
+  for (const s of sondas) s.dispose();
+}
 
 function criarDecoracoes() {
+  alinharNumeros(Object.keys(TIPOS).length);
   for (const [tipo, d] of Object.entries(TIPOS)) {
     decoracoes[tipo] = vscode.window.createTextEditorDecorationType({
       after: {
@@ -66,10 +94,68 @@ async function acharPython(documento) {
   return "python3";
 }
 
-function limpar(editor) {
+function limpar(editor, tambemLeitura = true) {
   if (!editor) return;
-  for (const d of Object.values(decoracoes)) editor.setDecorations(d, []);
+  for (const [tipo, d] of Object.entries(decoracoes)) {
+    if (tambemLeitura || !DA_LEITURA.has(tipo)) editor.setDecorations(d, []);
+  }
   diagnosticos.delete(editor.document.uri);
+}
+
+async function pythonDe(documento) {
+  const chave = documento.uri.fsPath;
+  if (!pythons.has(chave)) pythons.set(chave, await acharPython(documento));
+  return pythons.get(chave);
+}
+
+// ── a leitura: a cada tecla, sem rodar nada ─────────────────────────────────
+function desenharLeitura(editor, r) {
+  const doc = editor.document;
+  const porTipo = { escrita: [], descricao: [] };
+  const fimDa = (n) => doc.lineAt(n).range.end;
+  for (const [chave, linha] of Object.entries(r.linhas || {})) {
+    const n = parseInt(chave, 10) - 1;
+    if (n < 0 || n >= doc.lineCount || !linha.descricao) continue;
+    porTipo.descricao.push({ range: new vscode.Range(fimDa(n), fimDa(n)),
+      renderOptions: { after: { contentText: " — " + linha.descricao + " " } } });
+  }
+  const e = r.erro;
+  if (e && e.linha) {
+    const n = Math.min(Math.max(e.linha - 1, 0), doc.lineCount - 1);
+    porTipo.escrita.push({ range: new vscode.Range(fimDa(n), fimDa(n)),
+      hoverMessage: new vscode.MarkdownString(`${e.texto}\n\n*o Python diz:* \`${e.original}\``),
+      renderOptions: { after: { contentText: " ✕ " + e.texto + " " } } });
+  }
+  for (const [tipo, lista] of Object.entries(porTipo)) editor.setDecorations(decoracoes[tipo], lista);
+}
+
+function ler(documento, espera) {
+  if (!documento || documento.languageId !== "python" || documento.uri.scheme !== "file") return;
+  if (!vscode.workspace.getConfiguration("truecoral", documento.uri).get("descrever")) return;
+  const arquivo = documento.uri.fsPath;
+  const antes = leituras.get(arquivo);
+  if (antes) { clearTimeout(antes.temporizador); if (antes.processo) antes.processo.kill(); }
+  const estado = { processo: null, temporizador: null };
+  leituras.set(arquivo, estado);
+  estado.temporizador = setTimeout(async () => {
+    const versao = documento.version;
+    const python = await pythonDe(documento);
+    if (leituras.get(arquivo) !== estado) return;
+    const filho = cp.execFile(python, [path.join(__dirname, "leitura.py"), "-"],
+      { timeout: 15000, maxBuffer: 16 * 1024 * 1024 }, (falha, stdout) => {
+        if (leituras.get(arquivo) !== estado || falha || !stdout) return;
+        if (documento.version !== versao) return;          // o texto mudou enquanto lia: a próxima leitura vem
+        const editor = vscode.window.visibleTextEditors.find((ed) => ed.document === documento);
+        if (!editor) return;
+        try {
+          const r = JSON.parse(stdout);
+          ultimaLeitura.set(arquivo, r);
+          desenharLeitura(editor, r);
+        } catch (e) { /* uma leitura ruim não apaga a anterior */ }
+      });
+    filho.stdin.end(documento.getText());
+    estado.processo = filho;
+  }, espera);
 }
 
 function desenhar(editor, r) {
@@ -82,6 +168,8 @@ function desenhar(editor, r) {
     const detalhes = (linha.detalhes || []).filter(Boolean);
     let primeiro = true;
     for (const chip of linha.chips || []) {
+      if (chip.tipo === "erro" && r.erro && r.erro.escrita &&
+          vscode.workspace.getConfiguration("truecoral", doc.uri).get("descrever")) continue;
       const hover = primeiro && detalhes.length
         ? new vscode.MarkdownString(detalhes.map((d) => d.includes("\n") ? "```\n" + d + "\n```" : d).join("\n\n"))
         : undefined;
@@ -93,7 +181,13 @@ function desenhar(editor, r) {
       });
     }
   }
-  for (const [tipo, lista] of Object.entries(porTipo)) editor.setDecorations(decoracoes[tipo], lista);
+  for (const [tipo, lista] of Object.entries(porTipo)) {
+    if (!DA_LEITURA.has(tipo)) editor.setDecorations(decoracoes[tipo], lista);   // a leitura é da outra camada
+  }
+  // o VS Code põe na linha os textos na ordem em que foram desenhados: a descrição, desenhada de novo
+  // agora, fica sempre depois dos valores — código, valores, descrição, como no coral do terminal
+  const leitura = ultimaLeitura.get(doc.uri.fsPath);
+  if (leitura && vscode.workspace.getConfiguration("truecoral", doc.uri).get("descrever")) desenharLeitura(editor, leitura);
 
   const erro = r.erro;
   if (erro && erro.linha) {
@@ -128,7 +222,7 @@ async function analisar(documento) {
 
   const cfg = vscode.workspace.getConfiguration("truecoral", documento.uri);
   const tempo = cfg.get("tempo") || 10;
-  const python = await acharPython(documento);
+  const python = await pythonDe(documento);
   const motor = path.join(__dirname, "motor.py");
   const ws = vscode.workspace.getWorkspaceFolder(documento.uri);
   barra.text = "$(sync~spin) True Coral";
@@ -170,6 +264,15 @@ function activate(contexto) {
       else analisar(ed.document);
     }),
     vscode.commands.registerCommand("truecoral.limpar", () => limpar(vscode.window.activeTextEditor)),
+    vscode.commands.registerCommand("truecoral.alternarDescricao", async () => {
+      const cfg = vscode.workspace.getConfiguration("truecoral");
+      const novo = !cfg.get("descrever");
+      await cfg.update("descrever", novo, vscode.ConfigurationTarget.Global);
+      const ed = vscode.window.activeTextEditor;
+      if (novo && ed) ler(ed.document, 0);
+      else if (ed) { ed.setDecorations(decoracoes.descricao, []); ed.setDecorations(decoracoes.escrita, []); }
+      vscode.window.showInformationMessage(`True Coral, descrição das linhas: ${novo ? "ligada" : "desligada"}`);
+    }),
     vscode.commands.registerCommand("truecoral.alternar", async () => {
       const cfg = vscode.workspace.getConfiguration("truecoral");
       const novo = !cfg.get("aoSalvar");
@@ -179,16 +282,25 @@ function activate(contexto) {
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (vscode.workspace.getConfiguration("truecoral", doc.uri).get("aoSalvar")) analisar(doc);
     }),
-    vscode.workspace.onDidChangeTextDocument((ev) => {        // as linhas mudam de lugar: o desenho vale para o salvo
+    vscode.workspace.onDidChangeTextDocument((ev) => {        // os valores valem para o salvo; a leitura é refeita
       if (ev.contentChanges.length === 0) return;
       const ed = vscode.window.visibleTextEditors.find((e) => e.document === ev.document);
-      if (ed) limpar(ed);
+      if (ed) limpar(ed, false);
+      ler(ev.document, 250);
     }),
+    vscode.window.onDidChangeActiveTextEditor((ed) => { if (ed) ler(ed.document, 0); }),
+    vscode.workspace.onDidOpenTextDocument((doc) => ler(doc, 0)),
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      pythons.delete(doc.uri.fsPath); leituras.delete(doc.uri.fsPath); ultimaLeitura.delete(doc.uri.fsPath);
+    }),
+    vscode.workspace.onDidChangeConfiguration((ev) => { if (ev.affectsConfiguration("truecoral.pythonPath")) pythons.clear(); }),
   );
+  for (const ed of vscode.window.visibleTextEditors) ler(ed.document, 0);
 }
 
 function deactivate() {
   for (const p of processos.values()) p.kill();
+  for (const l of leituras.values()) { clearTimeout(l.temporizador); if (l.processo) l.processo.kill(); }
 }
 
 module.exports = { activate, deactivate };

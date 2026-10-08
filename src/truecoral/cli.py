@@ -4,6 +4,7 @@
     coral arquivo.py --json          o resultado cru do motor (é o que a extensão do VS Code lê)
     coral arquivo.py --python P      roda com este Python
     coral arquivo.py --tempo 20      limite de tempo, em segundos (padrão: 10)
+    coral arquivo.py --sem-descricao sem o "— o que a linha faz" no fim de cada linha
 """
 import json
 import os
@@ -13,6 +14,7 @@ import sys
 from pathlib import Path
 
 from truecoral import __version__
+from truecoral.leitura import ler
 
 MOTOR = Path(__file__).with_name("motor.py")
 
@@ -66,9 +68,11 @@ COR_DO_TIPO = {"valor": "azul", "saida": "verde", "laco": "lilas", "condicao": "
                "erro": "vermelho", "naorodou": "cinza", "retorna": "cinza", "chamada": "lilas", "excecao": "amarelo"}
 
 
-def desenhar(r):
+def desenhar(r, descrever=True):
     with open(r["arquivo"], encoding="utf-8") as fh:
-        codigo = fh.read().splitlines()
+        fonte = fh.read()
+    codigo = fonte.splitlines()
+    leitura = ler(fonte) if descrever else {"linhas": {}}
     larg_cod = min(max((len(x) for x in codigo), default=10) + 2, 56)
     erro, limite = r.get("erro"), r.get("limite")
     cab = [c("True Coral", "vermelho", "negrito"), os.path.basename(r["arquivo"]), f"Python {r['python']}"]
@@ -85,6 +89,9 @@ def desenhar(r):
         pedacos = [c(ch["texto"], COR_DO_TIPO.get(ch["tipo"], "cinza"), *(("negrito",) if ch["tipo"] in ("erro", "laco")
                                                                        else ()))
                    for ch in info.get("chips", [])]
+        descricao = leitura["linhas"].get(str(i), {}).get("descricao")
+        if descricao:
+            pedacos.append(c("— " + descricao, "cinza"))
         saida.append(c(f"{i:>3}  ", "cinza") + cod.ljust(larg_cod) + "   ".join(pedacos))
         for d in info.get("detalhes", []):
             if erro and erro.get("linha") == i:
@@ -94,7 +101,7 @@ def desenhar(r):
     if erro and not erro.get("linha"):
         saida += ["", c(f"✕ {erro['tipo']}: {erro['mensagem']}", "vermelho")]
     saida += ["", c("= o que a linha guardou   ↩ o que a função devolveu   › o que o print escreveu   ↻ laço   "
-                    "⚡ erro tratado   ! fato que merece atenção   ✕ erro   · não rodou", "cinza")]
+                    "⚡ erro tratado   ! fato que merece atenção   ✕ erro   · não rodou   — o que a linha faz", "cinza")]
     return "\n".join(saida)
 
 
@@ -106,6 +113,7 @@ opções:
   --python CAMINHO   roda com este Python (padrão: o .venv da pasta, o ambiente ativo ou o python3)
   --tempo SEGUNDOS   limite de tempo; um laço infinito para aqui (padrão: 10)
   --json             o resultado cru do motor, para outras ferramentas (a extensão do VS Code)
+  --sem-descricao    sem o "— o que a linha faz" no fim de cada linha
   -h, --help         esta ajuda
   -V, --version      a versão
 
@@ -121,7 +129,7 @@ def main(argv=None):
     if args[0] in ("-V", "--version"):
         print(f"coral {__version__}")
         return 0
-    arquivo, python, tempo, como_json = None, None, 10.0, False
+    arquivo, python, tempo, como_json, descrever = None, None, 10.0, False, True
     i = 0
     while i < len(args):
         a = args[i]
@@ -131,6 +139,8 @@ def main(argv=None):
             tempo, i = float(args[i + 1]), i + 2
         elif a == "--json":
             como_json, i = True, i + 1
+        elif a == "--sem-descricao":
+            descrever, i = False, i + 1
         elif a.startswith("-"):
             print(f"coral: opção desconhecida: {a} (veja coral -h)", file=sys.stderr)
             return 2
@@ -148,5 +158,5 @@ def main(argv=None):
     if como_json:
         print(json.dumps(r, ensure_ascii=False, indent=1))
     else:
-        print(desenhar(r))
+        print(desenhar(r, descrever))
     return 0

@@ -1,6 +1,9 @@
 # True Coral para VS Code
 
-O que cada linha do seu código Python fez de verdade, ao lado da linha: o que ela guardou, quantas
+**A cada tecla**, sem rodar nada: o que cada linha **faz**, em português (`— devolve a soma de a e b`),
+e o erro de escrita traduzido (`✕ faltou fechar o '('`, `✕ abriu com '[' e fechou com ')': esperava-se ']'`).
+
+**Ao salvar**, o que cada linha do seu código Python fez de verdade, ao lado da linha: o que ela guardou, quantas
 voltas cada laço deu e por onde saiu, quantas vezes cada condição deu True ou False, o que o print
 escreveu e, se der erro, onde e por quê — em português.
 
@@ -9,8 +12,9 @@ escreveu e, se der erro, onde e por quê — em português.
 - **Erro:** chip vermelho, sublinhado e entrada no painel de Problemas.
 - **O código roda de verdade**, com limite de tempo (padrão 10 s) para laço infinito. O `input()` fica desligado.
 
-Comandos: `True Coral: analisar este arquivo` · `limpar as marcações` · `ligar ou desligar ao salvar`.
-Configuração: `truecoral.pythonPath`, `truecoral.tempo`, `truecoral.aoSalvar`.
+Comandos: `True Coral: analisar este arquivo` · `limpar as marcações` · `ligar ou desligar ao salvar` ·
+`ligar ou desligar a descrição das linhas`.
+Configuração: `truecoral.pythonPath`, `truecoral.tempo`, `truecoral.aoSalvar`, `truecoral.descrever`.
 
 ## Junto com a viper
 

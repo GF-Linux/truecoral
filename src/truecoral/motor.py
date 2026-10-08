@@ -22,6 +22,10 @@ import reprlib
 import json
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from leitura import traduzir_sintaxe  # noqa: E402  a mesma tradução do erro de escrita que a leitura usa
+sys.path.pop(0)
 import time
 
 VERSAO_FORMATO = 1
@@ -355,6 +359,9 @@ class Registro:
                 self.estados.pop(quadro, None)
             else:
                 est["pendente"] = None
+            quem_chamou = self.estados.get(quadro.f_back) if quadro.f_back is not None else None
+            if quem_chamou is not None and quem_chamou["pendente"] is not None:
+                self.atual = quem_chamou["pendente"]     # o que for escrito agora é da linha que chamou
         return self.local
 
 
@@ -396,8 +403,9 @@ def analisar(arquivo, limite_tempo=10.0, limite_passos=5_000_000):
         codigo = compile(arvore, arquivo, "exec")
     except SyntaxError as e:
         tipo = type(e).__name__
-        resultado["erro"] = {"linha": e.lineno, "tipo": tipo, "mensagem": e.msg,
-                             "explica": EXPLICA.get(tipo, ""), "coluna": e.offset}
+        linha, texto = traduzir_sintaxe(e, fonte)
+        resultado["erro"] = {"linha": linha, "tipo": tipo, "mensagem": e.msg,
+                             "explica": texto, "coluna": e.offset, "escrita": True}
         return resultado
 
     mapa = Mapa(fonte)

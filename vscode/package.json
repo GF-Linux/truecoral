@@ -1,8 +1,8 @@
 {
   "name": "truecoral",
   "displayName": "True Coral",
-  "description": "O que cada linha do seu código Python fez de verdade: valores, laços, condições, saídas e erros, ao lado da linha.",
-  "version": "0.3.0",
+  "description": "O que cada linha do seu código Python faz e fez: a descrição em português a cada tecla, e ao salvar os valores, laços, condições, saídas e erros.",
+  "version": "0.4.0",
   "publisher": "GF-Linux",
   "license": "MIT",
   "repository": {
@@ -43,6 +43,10 @@
       {
         "command": "truecoral.alternar",
         "title": "True Coral: ligar ou desligar ao salvar"
+      },
+      {
+        "command": "truecoral.alternarDescricao",
+        "title": "True Coral: ligar ou desligar a descrição das linhas"
       }
     ],
     "configuration": {
@@ -62,6 +66,11 @@
           "type": "number",
           "default": 10,
           "description": "Limite de tempo, em segundos. Um laço infinito para aqui."
+        },
+        "truecoral.descrever": {
+          "type": "boolean",
+          "default": true,
+          "description": "A cada tecla, ao lado de cada linha: o que ela faz (— …) e o erro de escrita traduzido (✕ …). Não roda o código."
         }
       }
     },
@@ -79,7 +88,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py && cp ../CHANGELOG.md CHANGELOG.md"
+    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py && cp ../src/truecoral/leitura.py leitura.py && cp ../CHANGELOG.md CHANGELOG.md"
   },
   "icon": "icone.png"
 }
