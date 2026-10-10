@@ -1,5 +1,14 @@
 # Mudanças
 
+## 0.5.0
+
+- **o snippet do `compare`, da viper:** digite `compare` e aperte Tab — a chamada nasce desempacotada,
+  `a, b = compare(v1, v2)`, porque ela devolve os dois lados.
+- **a leitura conhece a viper:** com `from viper import replacement, compare`, a descrição diz o que
+  elas fazem — *x recebe a lista [1, 2, 3, 4, 5] com 'par' no lugar de cada x em que o resto de x por 2
+  é igual a 0*. Uma função sua com o mesmo nome, que não vem da viper, continua descrita pela forma.
+- desempacotar diz quem recebe: *a, b recebem …*
+
 ## 0.4.0
 
 - **a leitura: o que cada linha faz, a cada tecla.** Ao lado de cada linha, em cinza, a descrição em

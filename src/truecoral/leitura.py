@@ -239,6 +239,24 @@ def contrair(texto):
     return CONTRAI.sub(lambda m: {"de": "d", "em": "n"}[m.group(1)] + m.group(2) + " ", texto)
 
 
+def _viper_replacement(leitor, no, p):
+    lista, palavra, cond = no.args[0], no.args[1], no.args[2]
+    if isinstance(cond, ast.Lambda) and cond.args.args:
+        x = cond.args.args[0].arg
+        quando = f"cada {x} em que {leitor.e(cond.body, p)}"
+    else:
+        quando = f"cada item em que {leitor.cod(cond)} diz True"
+    return f"{leitor.e(lista, p)} com {leitor.cod(palavra)} no lugar de {quando}"
+
+
+def _viper_compare(leitor, no, p):
+    v1, v2 = no.args[0], no.args[1]
+    return f"as versões {leitor.cod(v1)} e {leitor.cod(v2)} com o mesmo tamanho (completadas com zeros), como listas"
+
+
+VIPER = {"replacement": _viper_replacement, "compare": _viper_compare}    # from viper import ...
+
+
 class Leitor:
     def __init__(self, fonte):
         self.fonte = fonte
@@ -382,6 +400,11 @@ class Leitor:
         if isinstance(f, ast.Name):
             if f.id == "range":
                 return f"os números {self.intervalo(no)}"
+            if self.modulos.get(f.id, "").startswith("viper.") and f.id in VIPER:
+                try:
+                    return VIPER[f.id](self, no, p)          # as funções do arsenal, que a leitura conhece
+                except (IndexError, AttributeError):
+                    pass
             modelo = FUNCAO.get(f.id)
             args = self.argumentos(no, p)
             params = self.funcoes.get(f.id)
@@ -497,7 +520,7 @@ class Leitor:
         elif isinstance(no, ast.Assign):
             alvos = " e ".join(self.cod(t) for t in no.targets)
             if isinstance(no.targets[0], ast.Tuple):
-                self.por(n, self.caber(lambda pr: f"separa {self.e(no.value, pr)} em {alvos}"))
+                self.por(n, self.caber(lambda pr: f"{alvos} recebem {self.e(no.value, pr)}"))
             elif isinstance(no.targets[0], ast.Subscript) and isinstance(no.targets[0].slice, ast.Constant) \
                     and isinstance(no.targets[0].slice.value, str):
                 alvo = no.targets[0]

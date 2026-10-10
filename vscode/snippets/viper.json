@@ -4,5 +4,11 @@
 		"prefix": "replacement",
 		"body": "replacement(${1:lista}, '${2:palavra}', lambda x: ${3:condição})$0",
 		"description": "viper: troca por 'palavra' cada item da lista em que a condição for verdadeira"
+	},
+	// compare devolve os dois lados: a chamada já nasce desempacotada em a, b.
+	"viper · compare": {
+		"prefix": "compare",
+		"body": "${1:a}, ${2:b} = compare(${3:v1}, ${4:v2})$0",
+		"description": "viper: iguala o tamanho de duas versões (completa com zeros) para comparar por fora"
 	}
 }

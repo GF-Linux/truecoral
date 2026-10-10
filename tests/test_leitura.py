@@ -100,6 +100,22 @@ def test_nao_roda_nada():
     assert erro is None and d[2] == "chama os.remove com 'nao-apague-isto'"
 
 
+
+def test_as_funcoes_da_viper():
+    d, _ = _d("from viper import replacement, compare\n"
+              "x = replacement([1, 2, 3, 4, 5], 'par', lambda x: x % 2 == 0)\n"
+              "a, b = compare('3.12', '3.12.0.1')\n"
+              "y = compare(1, 2)\n")
+    assert d[1] == "traz replacement, compare de viper"
+    assert d[2] == "x recebe a lista [1, 2, 3, 4, 5] com 'par' no lugar de cada x em que o resto de x por 2 é igual a 0"
+    assert d[3] == ("a, b recebem as versões '3.12' e '3.12.0.1' com o mesmo tamanho (completadas com zeros), "
+                    "como listas")
+
+
+def test_funcao_com_o_mesmo_nome_que_nao_e_da_viper():
+    d, _ = _d("def compare(a, b):\n    return a\n\nx = compare(1, 2)\n")
+    assert d[4] == "x recebe o que compare devolve com a = 1, b = 2"
+
 if __name__ == "__main__":
     falhas = 0
     for nome, f in list(globals().items()):
