@@ -1,5 +1,13 @@
 # Mudanças
 
+## 0.5.1
+
+- **o snippet do `compare` escreve só a chamada**, `compare(v1, v2)`, como o da `replacement`. O
+  `a, b =` da 0.5.0 entrava onde o cursor estivesse e quebrava a linha: `y = comp` + Tab virava
+  `y = a, b = compare(...)`, e `v.comp` virava `v.a, b = compare(...)`.
+- **a leitura reconhece a viper com apelido:** `import viper as v` → `v.compare(...)`, e
+  `from viper import compare as cmp` → `cmp(...)`.
+
 ## 0.5.0
 
 - **o snippet do `compare`, da viper:** digite `compare` e aperte Tab — a chamada nasce desempacotada,

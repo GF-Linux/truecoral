@@ -400,9 +400,10 @@ class Leitor:
         if isinstance(f, ast.Name):
             if f.id == "range":
                 return f"os números {self.intervalo(no)}"
-            if self.modulos.get(f.id, "").startswith("viper.") and f.id in VIPER:
+            origem = self.modulos.get(f.id, "")               # from viper import compare (as cmp)
+            if origem.startswith("viper.") and origem.split(".")[-1] in VIPER:
                 try:
-                    return VIPER[f.id](self, no, p)          # as funções do arsenal, que a leitura conhece
+                    return VIPER[origem.split(".")[-1]](self, no, p)     # as funções do arsenal
                 except (IndexError, AttributeError):
                     pass
             modelo = FUNCAO.get(f.id)
@@ -432,6 +433,11 @@ class Leitor:
                     sub = next((k for k in f.value.keywords if k.arg == "subset"), None)
                     por = f", olhando só {self.cod(sub.value)}" if sub else ""
                     return f"quantas linhas de {o} repetem uma já vista{por}"
+            if isinstance(f.value, ast.Name) and self.modulos.get(f.value.id) == "viper" and f.attr in VIPER:
+                try:
+                    return VIPER[f.attr](self, no, p)            # import viper as v: v.compare(...)
+                except (IndexError, AttributeError):
+                    pass
             if isinstance(f.value, ast.Name) and f.value.id in self.modulos \
                     and not (self.modulos[f.value.id] == "pandas" and f.attr in VALOR_METODO):
                 args = self.argumentos(no, p)       # função de módulo: não é método de lista nem de texto

@@ -116,6 +116,16 @@ def test_funcao_com_o_mesmo_nome_que_nao_e_da_viper():
     d, _ = _d("def compare(a, b):\n    return a\n\nx = compare(1, 2)\n")
     assert d[4] == "x recebe o que compare devolve com a = 1, b = 2"
 
+
+def test_viper_com_apelido():
+    d, _ = _d("import viper as v\nfrom viper import compare as cmp\n"
+              "a, b = v.compare('3.12', '3.13')\nx = v.replacement([1, 2], 'x', lambda x: x == 2)\n"
+              "c, e = cmp(1, 2)\n")
+    assert d[3] == ("a, b recebem as versões '3.12' e '3.13' com o mesmo tamanho (completadas com zeros), "
+                    "como listas")
+    assert d[4] == "x recebe a lista [1, 2] com 'x' no lugar de cada x em que x é igual a 2"
+    assert d[5].startswith("c, e recebem as versões 1 e 2")
+
 if __name__ == "__main__":
     falhas = 0
     for nome, f in list(globals().items()):

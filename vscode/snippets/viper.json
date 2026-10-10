@@ -5,10 +5,11 @@
 		"body": "replacement(${1:lista}, '${2:palavra}', lambda x: ${3:condição})$0",
 		"description": "viper: troca por 'palavra' cada item da lista em que a condição for verdadeira"
 	},
-	// compare devolve os dois lados: a chamada já nasce desempacotada em a, b.
+	// Só a chamada, como a da replacement: o snippet entra onde o cursor estiver (depois de "x = ", de
+	// "v."...), e um "a, b =" escrito por ele quebraria a linha. Que ela devolve dois lados, a leitura diz.
 	"viper · compare": {
 		"prefix": "compare",
-		"body": "${1:a}, ${2:b} = compare(${3:v1}, ${4:v2})$0",
+		"body": "compare(${1:v1}, ${2:v2})$0",
 		"description": "viper: iguala o tamanho de duas versões (completa com zeros) para comparar por fora"
 	}
 }
