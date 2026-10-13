@@ -117,6 +117,7 @@ function desenharLeitura(editor, r) {
     const n = parseInt(chave, 10) - 1;
     if (n < 0 || n >= doc.lineCount || !linha.descricao) continue;
     porTipo.descricao.push({ range: new vscode.Range(fimDa(n), fimDa(n)),
+      hoverMessage: new vscode.MarkdownString("— " + linha.descricao.replace(/; depois, /, ";\n\ndepois, ").replace(/; /g, ";\n\n")),
       renderOptions: { after: { contentText: " — " + linha.descricao + " " } } });
   }
   const e = r.erro;

@@ -1,5 +1,19 @@
 # Mudanças
 
+## 0.6.0
+
+- **a variável conta a própria história.** Na linha onde ela nasce, a descrição diz o que ela é e cada
+  mudança escrita depois, com a condição: *contador: variável de valor 0; depois, recebe +1, quando o
+  resto de x por 2 é igual a 0, para cada x em lista*. Na linha que muda: *contador (que nasceu valendo
+  0) recebe +1, quando…*. Apagou o `+=`? A história volta a ser só o nascimento — a cada tecla.
+- **o else diz o que não aconteceu:** *quando nem self.size == 0, nem index < 0 or index >= self.size*.
+- **sintaxe e lógica:** o `self` é o objeto; o atributo nasce no `__init__`; `[None] * n` é uma lista de
+  n posições; `lista[i]` é o valor da posição i; `a.insert(10)` roda o método insert da sua classe com
+  `value = 10`; um método sem `return` avisa que devolve None.
+- corrigido: a posição de uma lista (`self.array[self.size - 1]`) era descrita como filtro de linhas do
+  pandas, e `a.get(0)` de uma classe sua, como o `get` do dicionário.
+- passar o mouse no fim da linha mostra a descrição inteira, quando ela passa da largura da tela.
+
 ## 0.5.1
 
 - **o snippet do `compare` escreve só a chamada**, `compare(v1, v2)`, como o da `replacement`. O

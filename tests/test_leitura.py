@@ -47,7 +47,7 @@ def test_pandas_do_arquivo_2():
     d, _ = _d("import pandas as pd\ndf = pd.read_csv(arquivo, sep=';', encoding='latin-1')\n"
               "df.isna().sum()\nprint(df.shape)\nprint(df.duplicated(subset=['brinco']).sum())\n")
     assert d[1] == "importa pandas com o nome pd"
-    assert d[2] == "df recebe o CSV lido de arquivo, separado por ';', em 'latin-1'"
+    assert d[2] == "df: variável que guarda o CSV lido de arquivo, separado por ';', em 'latin-1'"
     assert d[3] == "quantos vazios há em cada coluna de df"
     assert d[4] == "mostra na tela a forma (linhas, colunas) de df"
     assert d[5] == "mostra na tela quantas linhas de df repetem uma já vista, olhando só ['brinco']"
@@ -55,13 +55,13 @@ def test_pandas_do_arquivo_2():
 
 def test_comprehension_e_contracao():
     d, _ = _d("nomes = [c for c in df.columns if c.startswith('peso')]\nx = max(len(a), len(b))\n")
-    assert d[1] == "nomes recebe a lista de c, para cada c nos nomes das colunas de df, só quando c começa com 'peso'"
-    assert d[2] == "x recebe o maior entre o tamanho de a e o tamanho de b"
+    assert d[1] == "nomes: variável que guarda a lista de c, para cada c nos nomes das colunas de df, só quando c começa com 'peso'"
+    assert d[2] == "x: variável que guarda o maior entre o tamanho de a e o tamanho de b"
 
 
 def test_contracao_nao_mexe_no_nome_dele():
     d, _ = _d("x = a + o\n")
-    assert d[1] == "x recebe a soma de a e o"
+    assert d[1] == "x: variável que guarda a soma de a e o"
 
 
 def test_erros_de_escrita_traduzidos():
@@ -86,7 +86,7 @@ def test_erros_de_escrita_traduzidos():
 def test_linha_quebrada_nao_apaga_o_resto():
     d, erro = _d("def calculadora(a, b):\n    return a + b\n\nprint(calculadora(1, 2)\nx = 3\n")
     assert erro["linha"] == 4
-    assert d[1] == "função calculadora, recebe a, b" and d[2] == "devolve a soma de a e b" and d[5] == "x recebe 3"
+    assert d[1] == "função calculadora, recebe a, b" and d[2] == "devolve a soma de a e b" and d[5] == "x: variável de valor 3"
     assert 4 not in d
 
 
@@ -107,14 +107,14 @@ def test_as_funcoes_da_viper():
               "a, b = compare('3.12', '3.12.0.1')\n"
               "y = compare(1, 2)\n")
     assert d[1] == "traz replacement, compare de viper"
-    assert d[2] == "x recebe a lista [1, 2, 3, 4, 5] com 'par' no lugar de cada x em que o resto de x por 2 é igual a 0"
+    assert d[2] == "x: variável que guarda a lista [1, 2, 3, 4, 5] com 'par' no lugar de cada x em que o resto de x por 2 é igual a 0"
     assert d[3] == ("a, b recebem as versões '3.12' e '3.12.0.1' com o mesmo tamanho (completadas com zeros), "
                     "como listas")
 
 
 def test_funcao_com_o_mesmo_nome_que_nao_e_da_viper():
     d, _ = _d("def compare(a, b):\n    return a\n\nx = compare(1, 2)\n")
-    assert d[4] == "x recebe o que compare devolve com a = 1, b = 2"
+    assert d[4] == "x: variável que guarda o que compare devolve com a = 1, b = 2"
 
 
 def test_viper_com_apelido():
@@ -123,8 +123,49 @@ def test_viper_com_apelido():
               "c, e = cmp(1, 2)\n")
     assert d[3] == ("a, b recebem as versões '3.12' e '3.13' com o mesmo tamanho (completadas com zeros), "
                     "como listas")
-    assert d[4] == "x recebe a lista [1, 2] com 'x' no lugar de cada x em que x é igual a 2"
+    assert d[4] == "x: variável que guarda a lista [1, 2] com 'x' no lugar de cada x em que x é igual a 2"
     assert d[5].startswith("c, e recebem as versões 1 e 2")
+
+
+def test_a_variavel_conta_a_propria_historia():
+    d, _ = _d("contador = 0\nfor x in lista:\n    if x % 2 == 0:\n        contador += 1\n")
+    assert d[1] == "contador: variável de valor 0; depois, recebe +1, quando o resto de x por 2 é igual a 0, para cada x em lista"
+    assert d[4] == "contador (que nasceu valendo 0) recebe +1, quando o resto de x por 2 é igual a 0, para cada x em lista"
+    d, _ = _d("contador = 0\n")                    # apagou o += : a história volta a ser só o nascimento
+    assert d[1] == "contador: variável de valor 0"
+
+
+def test_o_else_diz_o_que_nao_aconteceu():
+    d, _ = _d("x = 3\nif y:\n    x = 5\nelif z:\n    x = 6\nelse:\n    x = 7\n")
+    assert d[7] == "x (que nasceu valendo 3) passa a valer 7, quando nem y, nem z"
+    assert d[5] == "x (que nasceu valendo 3) passa a valer 6, quando z (nem y)"
+
+
+def test_a_classe_do_estudo1():
+    d, _ = _d("class MyArray:\n"
+              "    def __init__(self, tamanho_maximo):\n"
+              "        self.array = [None] * tamanho_maximo\n"
+              "        self.size = 0\n"
+              "    def insert(self, value):\n"
+              "        if self.size < len(self.array):\n"
+              "            self.array[self.size] = value\n"
+              "            self.size += 1\n"
+              "    def get(self, index):\n"
+              "        self.size -= 1\n"
+              "a = MyArray(10)\n"
+              "a.insert(10)\n"
+              "print(a.get(0))\n")
+    assert d[1] == "cria a classe MyArray: o molde dos objetos MyArray, com os métodos insert, get"
+    assert d[2] == "o __init__ roda sozinho ao criar um MyArray(…): self é o objeto novo; tamanho_maximo vem entre os parênteses"
+    assert d[3].startswith("o objeto (self) ganha o atributo array, que guarda uma lista de tamanho_maximo posições, todas valendo None; depois,")
+    assert d[4] == ("o objeto (self) ganha o atributo size, que vale 0; depois, recebe +1 no insert, quando self.size é menor "
+                    "que o tamanho de self.array; recebe −1 no get")
+    assert d[6] == "se self.size (nasceu valendo 0) é menor que o tamanho de self.array"
+    assert d[7].startswith("na lista self.array (que nasceu como [None] * tamanho_maximo no __init__), a posição self.size passa a guardar value")
+    assert d[8] == "self.size (que nasceu valendo 0 no __init__) recebe +1, quando self.size é menor que o tamanho de self.array"
+    assert d[11] == "a: variável que guarda um objeto MyArray novo (o __init__ roda com tamanho_maximo = 10)"
+    assert d[12] == "chama o método insert do objeto a, com value = 10"
+    assert d[13] == "mostra na tela o que o método get de a devolve, com index = 0 — get não tem return: devolve None"
 
 if __name__ == "__main__":
     falhas = 0

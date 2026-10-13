@@ -264,6 +264,11 @@ class Leitor:
         self.saida = {}
         self.funcoes = {}      # nome → parâmetros, das funções definidas no próprio arquivo
         self.modulos = {}      # nome no código → módulo importado (import pandas as pd: pd → pandas)
+        self.classes = {}      # nome da classe → {método: (parâmetros, tem return com valor)}
+        self.vidas = {}        # a biografia de cada variável: chave → nascimento e mudanças
+        self.tipos = {}        # chave da variável → a classe do arquivo de que ela é objeto
+        self.func = None       # a função (ou método) onde a frase está
+        self.classe = None     # a classe onde a frase está
 
     # ── as partes ──
     def cod(self, no):
@@ -280,6 +285,9 @@ class Leitor:
         p = prof + 1
         if isinstance(no, (ast.Name, ast.Constant)):
             return self.cod(no)
+        if isinstance(no, ast.BinOp) and isinstance(no.op, ast.Mult) and isinstance(no.left, ast.List) \
+                and len(no.left.elts) == 1:                    # [None] * n: n posições iguais
+            return f"uma lista de {self.cod(no.right)} posições, todas valendo {self.cod(no.left.elts[0])}"
         if isinstance(no, ast.BinOp):
             a, b = self.e(no.left, p), self.e(no.right, p)
             return {ast.Add: f"a soma de {a} e {b}", ast.Sub: f"{a} menos {b}", ast.Mult: f"{a} vezes {b}",
@@ -332,8 +340,12 @@ class Leitor:
                 return f"o campo {self.cod(chave)} de {o}"
             if isinstance(chave, ast.List):
                 return f"as colunas {self.cod(chave)} de {o}"
-            if isinstance(chave, (ast.Compare, ast.BoolOp, ast.BinOp, ast.UnaryOp)):
-                return f"as linhas de {o} em que {self.e(chave, p)}"
+            if isinstance(chave, (ast.Compare, ast.BoolOp)) or (
+                    isinstance(chave, ast.UnaryOp) and isinstance(chave.op, ast.Not)) or (
+                    isinstance(chave, ast.BinOp) and isinstance(chave.op, (ast.BitAnd, ast.BitOr))):
+                return f"as linhas de {o} em que {self.e(chave, p)}"      # o filtro do pandas
+            if self.e_lista(no.value):
+                return f"o valor da posição {self.cod(chave)} de {o}"
             return f"o item {self.cod(chave)} de {o}"
         if isinstance(no, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
             tipo = {ast.ListComp: "a lista", ast.SetComp: "o conjunto",
@@ -418,6 +430,10 @@ class Leitor:
                     return modelo(args)
                 except IndexError:
                     pass
+            if f.id in self.classes:
+                ps = self.classes[f.id].get("__init__", ([], False))[0]
+                com = self.nomeados(no, ps)
+                return f"um objeto {f.id} novo" + (f" (o __init__ roda com {com})" if com else "")
             if f.id[:1].isupper():
                 return f"um {f.id} novo" + (f" com {', '.join(args)}" if args else "")
             return f"o que {f.id} devolve" + (f" com {', '.join(args)}" if args else "") if not como_frase \
@@ -443,6 +459,15 @@ class Leitor:
                 args = self.argumentos(no, p)       # função de módulo: não é método de lista nem de texto
                 com = f" com {', '.join(args)}" if args else ""
                 return f"chama {self.cod(f)}{com}" if como_frase else f"o que {self.cod(f)} devolve{com}"
+            classe = self.classe_de(f.value)
+            if classe and f.attr in self.classes.get(classe, {}):      # um método da classe que você escreveu
+                ps, devolve = self.classes[classe][f.attr]
+                com = self.nomeados(no, ps)
+                com = f", com {com}" if com else ""
+                if como_frase:
+                    return f"chama o método {f.attr} do objeto {self.cod(f.value)}{com}"
+                sem = "" if devolve else f" — {f.attr} não tem return: devolve None"
+                return f"o que o método {f.attr} de {self.cod(f.value)} devolve{com}{sem}"
             o = self.e(f.value, p)
             if isinstance(f.value, ast.Attribute) and f.value.attr == "str":
                 o = f"cada texto de {self.e(f.value.value, p)}"
@@ -466,6 +491,216 @@ class Leitor:
                     pass
             return f"chama .{f.attr}(" + ", ".join(args) + f") em {o}"
         return self.cod(no)
+
+    # ── as variáveis e as suas biografias ──
+    def chave(self, no):
+        """De quem é esta variável: (função, nome), ou (classe, 'self.x') para um atributo."""
+        if isinstance(no, ast.Name):
+            if self.func is not None and (id(self.func), no.id) in self.vidas:
+                return (id(self.func), no.id)
+            if self.func is not None and self.e_parametro(no.id):
+                return None
+            return (id(self.func) if self.func is not None and self._local(no.id) else "mod", no.id)
+        if isinstance(no, ast.Attribute) and isinstance(no.value, ast.Name) and no.value.id == "self" \
+                and self.classe is not None:
+            return (id(self.classe), f"self.{no.attr}")
+        return None
+
+    def _local(self, nome):
+        """A função escreve nesta variável? (sem global, é dela)"""
+        for n in ast.walk(self.func):
+            alvos = n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(
+                n, (ast.AugAssign, ast.AnnAssign, ast.For)) else []
+            for a in alvos:
+                if any(isinstance(x, ast.Name) and x.id == nome for x in ast.walk(a)):
+                    return True
+        return False
+
+    def e_parametro(self, nome):
+        if self.func is None:
+            return False
+        a = self.func.args
+        return nome in [x.arg for x in a.posonlyargs + a.args + a.kwonlyargs]
+
+    def e_lista(self, no):
+        k = self.chave(no) if isinstance(no, (ast.Name, ast.Attribute)) else None
+        v = self.vidas.get(k, {}).get("valor") if k else None
+        return isinstance(v, (ast.List, ast.ListComp)) or (
+            isinstance(v, ast.BinOp) and isinstance(v.op, ast.Mult) and isinstance(v.left, ast.List)) or (
+            isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "list")
+
+    def classe_de(self, no):
+        if isinstance(no, ast.Name) and no.id == "self" and self.classe is not None:
+            return self.classe.name
+        k = self.chave(no) if isinstance(no, (ast.Name, ast.Attribute)) else None
+        return self.tipos.get(k) if k else None
+
+    def nomeados(self, chamada, params):
+        partes = [f"{params[i]} = {self.cod(a)}" if i < len(params) else self.cod(a)
+                  for i, a in enumerate(chamada.args)]
+        return ", ".join(partes + [f"{k.arg} = {self.cod(k.value)}" for k in chamada.keywords if k.arg])
+
+    def nasceu(self, k):
+        """'que nasceu valendo 0 no __init__' — de onde a variável veio, dito curto."""
+        v = self.vidas.get(k)
+        if not v:
+            return ""
+        onde = f" no {v['funcnome']}" if v["func"] is not self.func and v["funcnome"] else ""
+        if v["const"] is not None:
+            return f" (que nasceu valendo {v['const']}{onde})"
+        return f" (que nasceu como {v['curto']}{onde})"
+
+    def quando(self, conds):
+        """A condição primeiro, o laço depois: ', quando x > 0, para cada x em lista'."""
+        lacos = [c for c in conds if c.startswith(("para cada", "enquanto", "quando o laço"))]
+        outras = [c for c in conds if c not in lacos]
+        texto = f", quando {' e '.join(outras)}" if outras else ""
+        return texto + (", " + ", ".join(lacos) if lacos else "")
+
+    # a primeira passada: quem nasce onde, e o que muda depois — antes de descrever qualquer linha
+    def colher(self, nos, conds):
+        for no in nos:
+            try:
+                self._colher(no, conds)
+            except Exception:
+                pass
+
+    def _colher(self, no, conds):
+        n = getattr(no, "lineno", None)
+        if isinstance(no, ast.ClassDef):
+            antes, self.classe = self.classe, no
+            self.classes[no.name] = {}
+            for m in no.body:
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    ps = [a.arg for a in m.args.posonlyargs + m.args.args][1:]
+                    devolve = any(isinstance(r, ast.Return) and r.value is not None for r in ast.walk(m))
+                    self.classes[no.name][m.name] = (ps, devolve)
+            self.colher(no.body, conds)
+            self.classe = antes
+        elif isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            antes, self.func = self.func, no
+            self.colher(no.body, [])
+            self.func = antes
+        elif isinstance(no, (ast.Assign, ast.AnnAssign)):
+            alvos = no.targets if isinstance(no, ast.Assign) else [no.target]
+            if no.value is None:
+                return
+            for alvo in alvos:
+                if isinstance(alvo, ast.Subscript):
+                    k = self.chave(alvo.value)
+                    self.mudou(k, n, f"a posição {self.cod(alvo.slice)} passa a guardar {self.cod(no.value)}",
+                               conds)
+                    continue
+                for x in (alvo.elts if isinstance(alvo, ast.Tuple) else [alvo]):
+                    k = self.chave(x)
+                    if k is None:
+                        continue
+                    if k not in self.vidas:
+                        const = self.cod(no.value) if isinstance(no.value, ast.Constant) and not isinstance(alvo, ast.Tuple) else None
+                        self.vidas[k] = {"nasce": n, "func": self.func, "valor": None if isinstance(alvo, ast.Tuple) else no.value,
+                                         "funcnome": self.func.name if self.func is not None else "",
+                                         "const": const, "curto": self.cod(no.value)[:40], "mudancas": []}
+                        v = no.value
+                        if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id in self.classes:
+                            self.tipos[k] = v.func.id
+                    else:
+                        self.mudou(k, n, f"passa a valer {self.cod(no.value)[:40]}", conds)
+        elif isinstance(no, ast.AugAssign):
+            k = self.chave(no.target)
+            sinal = {ast.Add: "+", ast.Sub: "−", ast.Mult: "×", ast.Div: "÷"}.get(type(no.op))
+            texto = f"recebe {sinal}{self.cod(no.value)}" if sinal else f"é atualizado com {self.cod(no.value)}"
+            self.mudou(k, n, texto, conds)
+        elif isinstance(no, ast.Expr) and isinstance(no.value, ast.Call) and isinstance(no.value.func, ast.Attribute):
+            f = no.value.func
+            if f.attr in ("append", "extend", "insert", "remove", "pop", "clear", "sort", "reverse", "update", "add"):
+                a = [self.cod(x) for x in no.value.args]
+                texto = {"append": lambda: f"ganha {a[0]} no fim", "extend": lambda: f"ganha os itens de {a[0]}",
+                         "insert": lambda: f"ganha {a[1]} na posição {a[0]}", "remove": lambda: f"perde o primeiro {a[0]}",
+                         "pop": lambda: f"perde o item {a[0]}" if a else "perde o último item",
+                         "clear": lambda: "é esvaziada", "sort": lambda: "é ordenada", "reverse": lambda: "é invertida"
+                         }.get(f.attr, lambda: f"muda com .{f.attr}()")
+                try:
+                    self.mudou(self.chave(f.value), n, texto(), conds)
+                except IndexError:
+                    pass
+        elif isinstance(no, (ast.For, ast.AsyncFor)):
+            for x in (no.target.elts if isinstance(no.target, ast.Tuple) else [no.target]):
+                k = self.chave(x)
+                if k is not None and k not in self.vidas:
+                    self.vidas[k] = {"nasce": n, "func": self.func, "valor": None, "const": None, "mudancas": [],
+                                     "funcnome": self.func.name if self.func is not None else "",
+                                     "curto": f"cada item de {self.cod(no.iter)}"}
+            it = no.iter
+            if isinstance(it, ast.Call) and isinstance(it.func, ast.Name) and it.func.id == "range":
+                cada = f"para cada {self.cod(no.target)} {self.intervalo(it)}"
+            else:
+                cada = f"para cada {self.cod(no.target)} em {self.e(it, 2)}"
+            self.colher(no.body, conds + [cada])
+            self.colher(no.orelse, conds + ["quando o laço terminou sem break"])
+        elif isinstance(no, ast.While):
+            self.colher(no.body, conds + [f"enquanto {self.e(no.test, 1)}"])
+            self.colher(no.orelse, conds)
+        elif isinstance(no, ast.If):
+            self.colher(no.body, conds + [self.e(no.test, 1)])
+            self._colher_senao(no, conds, [self.cod(no.test)])
+        elif isinstance(no, (ast.With, ast.AsyncWith)):
+            self.colher(no.body, conds)
+        elif isinstance(no, ast.Try) or type(no).__name__ == "TryStar":
+            self.colher(no.body, conds)
+            for h in no.handlers:
+                self.colher(h.body, conds + [f"se der {self.cod(h.type) if h.type else 'qualquer erro'}"])
+            self.colher(no.orelse, conds + ["se não deu erro"])
+            self.colher(no.finalbody, conds)
+
+    def _colher_senao(self, no_if, conds, negadas):
+        """elif e else: a condição deles inclui o que NÃO aconteceu acima."""
+        nem = "nem " + ", nem ".join(negadas)
+        if no_if.orelse and isinstance(no_if.orelse[0], ast.If) and len(no_if.orelse) == 1 and \
+                self.linhas[no_if.orelse[0].lineno - 1].strip().startswith("elif"):
+            prox = no_if.orelse[0]
+            self.colher(prox.body, conds + [f"{self.e(prox.test, 1)} ({nem})"])
+            self._colher_senao(prox, conds, negadas + [self.cod(prox.test)])
+        elif no_if.orelse:
+            self.colher(no_if.orelse, conds + [nem])
+
+    def mudou(self, k, n, texto, conds):
+        if k is None or k not in self.vidas:
+            return
+        self.vidas[k]["mudancas"].append({"linha": n, "texto": texto, "conds": list(conds), "func": self.func,
+                                         "funcnome": self.func.name if self.func is not None else ""})
+
+    def biografia(self, k):
+        """O que veio depois do nascimento, para a linha onde a variável nasceu."""
+        v = self.vidas.get(k)
+        if not v or not v["mudancas"]:
+            return ""
+        partes = []
+        for m in v["mudancas"][:3]:
+            onde = f" no {m['funcnome']}" if m["func"] is not v["func"] and m["funcnome"] else ""
+            partes.append(f"{m['texto']}{onde}{self.quando(m['conds'])}")
+        mais = f"; e mais {len(v['mudancas']) - 3} mudança(s)" if len(v["mudancas"]) > 3 else ""
+        return "; depois, " + "; ".join(partes) + mais
+
+    def condicoes_da_linha(self, n, k):
+        v = self.vidas.get(k)
+        for m in (v["mudancas"] if v else []):
+            if m["linha"] == n:
+                return m["conds"]
+        return []
+
+    def anotar(self, texto, no):
+        """Na condição de um if, cada variável diz com que valor nasceu: 'self.size (nasceu valendo 0)'."""
+        feitas = set()
+        for x in ast.walk(no):
+            if isinstance(x, (ast.Name, ast.Attribute)):
+                k = self.chave(x)
+                v = self.vidas.get(k) if k else None
+                if v and v["const"] is not None and k not in feitas:
+                    nome = self.cod(x)
+                    texto = re.sub(rf"(?<![\w.]){re.escape(nome)}(?![\w.(])",
+                                   f"{nome} (nasceu valendo {v['const']})", texto, count=1)
+                    feitas.add(k)
+        return texto
 
     # ── as frases ──
     def por(self, n, texto):
@@ -507,22 +742,38 @@ class Leitor:
             params += [a.arg for a in no.args.kwonlyargs]
             if no.args.kwarg:
                 params.append(f"**{no.args.kwarg.arg}")
-            tipo = "método" if no.args.args and no.args.args[0].arg == "self" else "função"
-            self.por(n, f"{tipo} {no.name}, recebe {', '.join(params)}" if params
-                     else f"{tipo} {no.name}, sem parâmetros")
+            metodo = no.args.args and no.args.args[0].arg == "self" and self.classe is not None
+            if metodo and no.name == "__init__":
+                vem = f"; {', '.join(params)} {'vêm' if len(params) > 1 else 'vem'} entre os parênteses" if params else ""
+                self.por(n, f"o __init__ roda sozinho ao criar um {self.classe.name}(…): self é o objeto novo{vem}")
+            elif metodo:
+                vem = f"; {', '.join(params)} {'vêm' if len(params) > 1 else 'vem'} entre os parênteses" if params else ""
+                self.por(n, f"método {no.name}: roda em objeto.{no.name}(…), e self é o próprio objeto{vem}")
+            else:
+                tipo = "método" if no.args.args and no.args.args[0].arg == "self" else "função"
+                self.por(n, f"{tipo} {no.name}, recebe {', '.join(params)}" if params
+                         else f"{tipo} {no.name}, sem parâmetros")
             primeira = no.body[0] if no.body else None
             if isinstance(primeira, ast.Expr) and isinstance(primeira.value, ast.Constant) \
                     and isinstance(primeira.value.value, str):
                 self.por(primeira.lineno, f"a docstring: a documentação de {no.name}")
+            antes, self.func = self.func, no
             self.corpo(no.body)
+            self.func = antes
         elif isinstance(no, ast.ClassDef):
-            self.por(n, f"classe {no.name}")
+            metodos = [m for m in self.classes.get(no.name, {}) if m != "__init__"]
+            com = f", com os métodos {', '.join(metodos)}" if metodos else ""
+            self.por(n, f"cria a classe {no.name}: o molde dos objetos {no.name}{com}")
+            antes, self.classe = self.classe, no
             self.corpo(no.body)
+            self.classe = antes
         elif isinstance(no, ast.Return):
             if no.value is None:
                 self.por(n, "sai da função sem devolver valor (None)")
             else:
                 self.por(n, self.caber(lambda pr: f"devolve {self.e(no.value, pr)}"))
+        elif isinstance(no, ast.Assign) and len(no.targets) == 1 and self.frase_de_variavel(no, n):
+            pass
         elif isinstance(no, ast.Assign):
             alvos = " e ".join(self.cod(t) for t in no.targets)
             if isinstance(no.targets[0], ast.Tuple):
@@ -539,15 +790,27 @@ class Leitor:
                 self.por(n, self.caber(lambda pr: f"{self.cod(no.target)} recebe {self.e(no.value, pr)}"))
         elif isinstance(no, ast.AugAssign):
             alvo, v = self.cod(no.target), self.e(no.value, 1)
-            self.por(n, {ast.Add: f"soma {v} a {alvo}", ast.Sub: f"tira {v} de {alvo}",
-                         ast.Mult: f"multiplica {alvo} por {v}", ast.Div: f"divide {alvo} por {v}"}.get(
-                type(no.op), f"atualiza {alvo} com {v}"))
+            k = self.chave(no.target)
+            if k in self.vidas:
+                sinal = {ast.Add: "recebe +", ast.Sub: "recebe −", ast.Mult: "é multiplicado por ",
+                         ast.Div: "é dividido por "}.get(type(no.op), "é atualizado com ")
+                self.por(n, f"{alvo}{self.nasceu(k)} {sinal}{v}{self.quando(self.condicoes_da_linha(n, k))}")
+            else:
+                self.por(n, {ast.Add: f"soma {v} a {alvo}", ast.Sub: f"tira {v} de {alvo}",
+                             ast.Mult: f"multiplica {alvo} por {v}", ast.Div: f"divide {alvo} por {v}"}.get(
+                    type(no.op), f"atualiza {alvo} com {v}"))
         elif isinstance(no, ast.Expr):
             v = no.value
             if isinstance(v, ast.Constant) and isinstance(v.value, str):
                 self.por(n, "texto solto, que não é guardado")
             elif isinstance(v, ast.Call):
-                self.por(n, self.caber(lambda pr: self.chamada(v, pr, como_frase=True)))
+                texto = self.caber(lambda pr: self.chamada(v, pr, como_frase=True))
+                f = v.func
+                k = self.chave(f.value) if isinstance(f, ast.Attribute) and isinstance(
+                    f.value, (ast.Name, ast.Attribute)) else None
+                if k in self.vidas and any(m["linha"] == n for m in self.vidas[k]["mudancas"]):
+                    texto = f"{self.cod(f.value)}{self.nasceu(k)}: {texto}{self.quando(self.condicoes_da_linha(n, k))}"
+                self.por(n, texto)
             else:
                 self.por(n, self.caber(lambda pr: f"calcula {self.e(v, pr)} (e não guarda)"))
         elif isinstance(no, (ast.For, ast.AsyncFor)):
@@ -564,7 +827,8 @@ class Leitor:
             self.senao(no, "senão (se o laço terminou sem break)")
         elif isinstance(no, ast.If):
             eh_elif = n and self.linhas[n - 1].strip().startswith("elif")
-            self.por(n, self.caber(lambda pr: f"{'senão, se' if eh_elif else 'se'} {self.e(no.test, pr)}"))
+            self.por(n, self.anotar(self.caber(lambda pr: f"{'senão, se' if eh_elif else 'se'} {self.e(no.test, pr)}"),
+                                    no.test))
             self.corpo(no.body)
             if no.orelse and isinstance(no.orelse[0], ast.If) and \
                     self.linhas[no.orelse[0].lineno - 1].strip().startswith("elif"):
@@ -590,8 +854,14 @@ class Leitor:
                 self.por(fim, "no fim, sempre — com erro ou sem")
                 self.corpo(no.finalbody)
         elif isinstance(no, ast.Raise):
-            self.por(n, "levanta o mesmo erro de novo, para quem chamou" if no.exc is None
-                     else f"levanta {self.cod(no.exc)}")
+            exc = no.exc
+            if exc is None:
+                self.por(n, "levanta o mesmo erro de novo, para quem chamou")
+            elif isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name) and exc.args and \
+                    isinstance(exc.args[0], (ast.Constant, ast.JoinedStr)):
+                self.por(n, f"para aqui e levanta o erro {exc.func.id}, com a mensagem {self.cod(exc.args[0])}")
+            else:
+                self.por(n, f"para aqui e levanta {self.cod(exc)}")
         elif isinstance(no, ast.Import):
             self.por(n, "importa " + ", ".join(
                 f"{a.name} com o nome {a.asname}" if a.asname else a.name for a in no.names))
@@ -619,6 +889,42 @@ class Leitor:
             for c in no.cases:
                 self.por(c.pattern.lineno, f"caso {self.cod(c.pattern)}")
                 self.corpo(c.body)
+
+    def frase_de_variavel(self, no, n):
+        """Nascimento ou mudança de uma variável (ou de uma posição dela). False: não é o caso."""
+        alvo, valor = no.targets[0], no.value
+        if isinstance(alvo, ast.Subscript):
+            k = self.chave(alvo.value) if isinstance(alvo.value, (ast.Name, ast.Attribute)) else None
+            if k not in self.vidas or (isinstance(alvo.slice, ast.Constant) and isinstance(alvo.slice.value, str)):
+                return False
+            lugar = f"na lista {self.cod(alvo.value)}" if self.e_lista(alvo.value) else f"em {self.cod(alvo.value)}"
+            nucleo = self.caber(lambda pr: f"a posição {self.cod(alvo.slice)} passa a guardar {self.e(valor, pr)}")
+            self.por(n, f"{lugar}{self.nasceu(k)}, {nucleo}{self.quando(self.condicoes_da_linha(n, k))}")
+            return True
+        k = self.chave(alvo) if isinstance(alvo, (ast.Name, ast.Attribute)) else None
+        v = self.vidas.get(k)
+        if v is None:
+            return False
+        nome = self.cod(alvo)
+        if v["nasce"] != n:                                   # já existia: mudou
+            nucleo = self.caber(lambda pr: f"passa a valer {self.e(valor, pr)}")
+            self.por(n, f"{nome}{self.nasceu(k)} {nucleo}{self.quando(self.condicoes_da_linha(n, k))}")
+            return True
+        if isinstance(valor, ast.Constant):
+            o_que = f"vale {self.cod(valor)}"
+        elif isinstance(valor, ast.Name) and self.e_parametro(valor.id):
+            o_que = f"guarda o parâmetro {valor.id} (o valor que chega entre os parênteses)"
+        else:
+            o_que = None
+        if isinstance(alvo, ast.Attribute):                   # self.x = ...: o atributo nasce no objeto
+            texto = self.caber(lambda pr: f"o objeto (self) ganha o atributo {alvo.attr}, que "
+                                          f"{o_que or 'guarda ' + self.e(valor, pr)}")
+        elif o_que and o_que.startswith("vale"):
+            texto = f"{nome}: variável de valor {self.cod(valor)}"
+        else:
+            texto = self.caber(lambda pr: f"{nome}: variável que {o_que or 'guarda ' + self.e(valor, pr)}")
+        self.por(n, texto + self.biografia(k))
+        return True
 
     def senao(self, no, texto):
         if no.orelse:
@@ -686,6 +992,8 @@ def ler(fonte):
                                            if a.arg not in ("self", "cls")]
         leitor.linhas = linhas + [""] * 3
         leitor.fonte = "\n".join(linhas) + "\n"
+        leitor.colher(arvore.body, [])
+        leitor.func = leitor.classe = None
         for no in arvore.body:
             try:
                 leitor.frase(no)
