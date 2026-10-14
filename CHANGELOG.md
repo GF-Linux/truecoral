@@ -1,5 +1,15 @@
 # Mudanças
 
+## 0.7.1
+
+- **as setas, os valores e a descrição voltam a se respeitar** quando o VS Code ainda não registrou os
+  ajustes novos (`truecoral.setas`, `truecoral.sugestoes`) — o que pode acontecer ao atualizar a extensão
+  sem recarregar a janela. Sem registro, o VS Code devolvia "sem valor", e a extensão lia isso como
+  desligado: os valores não eram cortados, a coluna da descrição não ia para depois das setas (as setas
+  passavam por cima dela) e a lâmpada e a ficha da sugestão não apareciam. Agora, sem valor, vale o padrão.
+- fechar o diff do git não apaga mais o que a extensão guardava do arquivo (o git abre cópias com o mesmo
+  caminho).
+
 ## 0.7.0
 
 - **as setas do fluxo, ao salvar**, desenhadas por cima do código, no próprio editor: a chamada sobe até

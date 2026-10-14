@@ -2,7 +2,7 @@
   "name": "truecoral",
   "displayName": "True Coral",
   "description": "O que cada linha do seu código Python faz e fez: a descrição em português a cada tecla; ao salvar, os valores, as setas do fluxo e as sugestões com o molde da documentação do Python.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "GF-Linux",
   "license": "MIT",
   "repository": {

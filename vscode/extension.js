@@ -88,7 +88,13 @@ function criarDecoracoes() {
   camada.espaco = vscode.window.createTextEditorDecorationType({ after: { contentText: "" } });  // a rolagem alcança a coluna
 }
 
-const cfg = (doc, chave) => vscode.workspace.getConfiguration("truecoral", doc.uri).get(chave);
+// o ajuste sem valor (o VS Code ainda não registrou a chave nova) vale o padrão, e não "desligado".
+// Os mesmos padrões do package.json, escritos aqui para não depender do registro.
+const PADRAO = { aoSalvar: true, pythonPath: "", tempo: 10, descrever: true, setas: true, sugestoes: true };
+const cfg = (doc, chave) => {
+  const v = vscode.workspace.getConfiguration("truecoral", doc ? doc.uri : undefined).get(chave);
+  return v === undefined || v === null ? PADRAO[chave] : v;
+};
 const linhasDe = (doc) => Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text);
 const tabDe = (editor) => (typeof editor.options.tabSize === "number" ? editor.options.tabSize : 4);
 
@@ -249,7 +255,7 @@ function desenhar(editor, r) {
     let usado = 0;
     for (const chip of linha.chips || []) {
       if (chip.tipo === "erro" && r.erro && r.erro.escrita &&
-          vscode.workspace.getConfiguration("truecoral", doc.uri).get("descrever")) continue;
+          cfg(doc, "descrever")) continue;
       let texto = chip.texto;
       const custo = (t) => t.length + 2 + 2.4;                       // o texto, os espaços e a margem de 1.4em
       if (usado + custo(texto) > reserva) {
@@ -355,9 +361,8 @@ function activate(contexto) {
     }),
     vscode.commands.registerCommand("truecoral.limpar", () => limpar(vscode.window.activeTextEditor)),
     vscode.commands.registerCommand("truecoral.alternarDescricao", async () => {
-      const cfg = vscode.workspace.getConfiguration("truecoral");
-      const novo = !cfg.get("descrever");
-      await cfg.update("descrever", novo, vscode.ConfigurationTarget.Global);
+      const novo = !cfg(null, "descrever");
+      await vscode.workspace.getConfiguration("truecoral").update("descrever", novo, vscode.ConfigurationTarget.Global);
       const ed = vscode.window.activeTextEditor;
       if (novo && ed) ler(ed.document, 0);
       else if (ed) { ed.setDecorations(camada.descricao, []); ed.setDecorations(camada.espaco, []); ed.setDecorations(decoracoes.escrita, []); }
@@ -365,17 +370,15 @@ function activate(contexto) {
     }),
     ...["setas", "sugestoes"].map((chave) => vscode.commands.registerCommand(
       chave === "setas" ? "truecoral.alternarSetas" : "truecoral.alternarSugestoes", async () => {
-        const c = vscode.workspace.getConfiguration("truecoral");
-        const novo = !c.get(chave);
-        await c.update(chave, novo, vscode.ConfigurationTarget.Global);
+        const novo = !cfg(null, chave);
+        await vscode.workspace.getConfiguration("truecoral").update(chave, novo, vscode.ConfigurationTarget.Global);
         const ed = vscode.window.activeTextEditor;
         if (ed && !ed.document.isDirty) { pedidas.add(ed.document.uri.fsPath); ler(ed.document, 0); }
         vscode.window.showInformationMessage(`True Coral, ${chave === "setas" ? "setas do fluxo" : "sugestões"}: ${novo ? "ligadas" : "desligadas"}`);
       })),
     vscode.commands.registerCommand("truecoral.alternar", async () => {
-      const cfg = vscode.workspace.getConfiguration("truecoral");
-      const novo = !cfg.get("aoSalvar");
-      await cfg.update("aoSalvar", novo, vscode.ConfigurationTarget.Global);
+      const novo = !cfg(null, "aoSalvar");
+      await vscode.workspace.getConfiguration("truecoral").update("aoSalvar", novo, vscode.ConfigurationTarget.Global);
       vscode.window.showInformationMessage(`True Coral ao salvar: ${novo ? "ligado" : "desligado"}`);
     }),
     vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -394,6 +397,7 @@ function activate(contexto) {
     vscode.window.onDidChangeActiveTextEditor((ed) => { if (ed) ler(ed.document, 0); }),
     vscode.workspace.onDidOpenTextDocument((doc) => ler(doc, 0)),
     vscode.workspace.onDidCloseTextDocument((doc) => {
+      if (doc.uri.scheme !== "file") return;     // o git abre e fecha cópias do mesmo arquivo (o diff): não é o nosso
       pythons.delete(doc.uri.fsPath); leituras.delete(doc.uri.fsPath); ultimaLeitura.delete(doc.uri.fsPath);
       extrasDe.delete(doc.uri.fsPath); setasDe.delete(doc.uri.fsPath); pedidas.delete(doc.uri.fsPath);
     }),
