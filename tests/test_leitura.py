@@ -167,6 +167,94 @@ def test_a_classe_do_estudo1():
     assert d[12] == "chama o método insert do objeto a, com value = 10"
     assert d[13] == "mostra na tela o que o método get de a devolve, com index = 0 — get não tem return: devolve None"
 
+
+EXEMPLO = """from collections import Counter
+
+
+def colher(vezes):
+    pares = []
+    impares = []
+    try:
+        if vezes <= 0:
+            raise ValueError("vezes precisa ser maior que zero")
+        for n in range(vezes):
+            if n % 2 == 0:
+                pares.append(n)
+            else:
+                impares.append(n)
+        return pares, impares
+    except Exception as e:
+        print("erro:", e)
+
+
+def contar(pares, impares):
+    a = {'0': pares.count(0), '2': pares.count(2)}
+    return a, len(impares)
+
+
+def mostrar(pares, impares):
+    for k, v in contar(pares, impares)[0].items():
+        print(k, v)
+    print(contar(pares, impares)[1])
+
+
+pares, impares = colher(10)
+resumo = contar(pares, impares)
+mostrar(pares, impares)
+"""
+
+
+def test_o_fluxo_liga_chamada_volta_laco_e_erro():
+    f = ler(EXEMPLO)["fluxo"]
+    por_nome = {x["nome"]: x for x in f["funcoes"]}
+    assert [c["linha"] for c in por_nome["colher"]["chamadas"]] == [31]
+    assert por_nome["colher"]["chamadas"][0]["args"] == "vezes = 10"
+    assert por_nome["colher"]["retornos"] == [{"linha": 15, "texto": "pares, impares"}]
+    assert por_nome["colher"]["caem"] == [{"linha": 17, "motivo": "se deu erro"}]      # o except não devolve: None
+    assert [c["linha"] for c in por_nome["contar"]["chamadas"]] == [26, 28, 32]
+    assert por_nome["contar"]["chamadas"][0]["args"] == "pares, impares"           # 'pares = pares' aparece uma vez
+    assert por_nome["mostrar"]["retornos"] == [] and por_nome["mostrar"]["caem"] == []
+    assert {"linha": 10, "col": 8, "fim": 14} in f["lacos"]
+    assert {"linha": 11, "col": 12, "sim": 12, "nao": 14} in f["decisoes"]
+    assert f["erros"] == [{"de": 9, "col": 12, "para": 16, "col_try": 4}]          # ValueError cai no except Exception
+    assert f["inicio"] == 31
+
+
+def test_a_classe_liga_o_objeto_ao_metodo():
+    f = ler("class Caixa:\n    def __init__(self, n):\n        self.n = n\n    def dobro(self):\n"
+            "        return self.n * 2\n\nc = Caixa(3)\nprint(c.dobro())\n")["fluxo"]
+    por = {x["chave"]: x for x in f["funcoes"]}
+    assert por["Caixa.__init__"]["chamadas"] == [{"linha": 7, "args": "n = 3"}]
+    assert por["Caixa.dobro"]["chamadas"][0]["linha"] == 8 and por["Caixa.dobro"]["retornos"][0]["linha"] == 5
+
+
+def test_a_descricao_curta_deixa_a_historia_para_o_mouse():
+    r = ler("contador = 0\nfor x in lista:\n    if x % 2 == 0:\n        contador += 1\n")["linhas"]
+    assert r["1"]["curta"] == "contador: variável de valor 0"
+    assert r["1"]["descricao"].startswith("contador: variável de valor 0; depois,")
+    assert r["4"]["curta"] == "contador recebe +1"
+
+
+def test_as_sugestoes_mostram_o_molde_da_documentacao():
+    s = ler(EXEMPLO)["sugestoes"]
+    tipos = [(x["linha"], x["tipo"]) for x in s]
+    assert (15, "encadeamento") in tipos            # colher devolve duas coisas, que seguem juntas para contar e mostrar
+    assert (21, "contagem") in tipos                # pares.count(0), pares.count(2)
+    assert (26, "posicao") in tipos and (28, "posicao") in tipos      # contar(...)[0] e [1]
+    assert (28, "repetida") in tipos and (32, "repetida") not in tipos   # a guardada na 32 não é marcada
+    contagem = next(x for x in s if x["tipo"] == "contagem")
+    linha = EXEMPLO.splitlines()[20]
+    assert linha[contagem["col"]:contagem["col_fim"]] == "pares.count(0)"
+    assert "from collections import Counter" in contagem["ficha"] and "docs.python.org" in contagem["ficha"]
+    assert "→ Counter({'eggs': 1, 'ham': 1})" in contagem["ficha"]
+
+
+def test_a_coluna_conta_letras_e_nao_bytes():
+    s = ler("def f(a):\n    return a, a\n\nfor posição, v in f(1)[0], 2:\n    pass\n")["sugestoes"]
+    p = next(x for x in s if x["tipo"] == "posicao")
+    assert "for posição, v in f(1)[0], 2:"[p["col"]:p["col_fim"]] == "[0]"
+
+
 if __name__ == "__main__":
     falhas = 0
     for nome, f in list(globals().items()):

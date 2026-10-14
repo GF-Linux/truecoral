@@ -1,8 +1,8 @@
 {
   "name": "truecoral",
   "displayName": "True Coral",
-  "description": "O que cada linha do seu código Python faz e fez: a descrição em português a cada tecla, e ao salvar os valores, laços, condições, saídas e erros.",
-  "version": "0.6.0",
+  "description": "O que cada linha do seu código Python faz e fez: a descrição em português a cada tecla; ao salvar, os valores, as setas do fluxo e as sugestões com o molde da documentação do Python.",
+  "version": "0.7.0",
   "publisher": "GF-Linux",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,8 @@
     "learning",
     "pandas",
     "viper",
-    "snippets"
+    "snippets",
+    "flowchart"
   ],
   "activationEvents": [
     "onLanguage:python"
@@ -47,6 +48,14 @@
       {
         "command": "truecoral.alternarDescricao",
         "title": "True Coral: ligar ou desligar a descrição das linhas"
+      },
+      {
+        "command": "truecoral.alternarSetas",
+        "title": "True Coral: ligar ou desligar as setas do fluxo"
+      },
+      {
+        "command": "truecoral.alternarSugestoes",
+        "title": "True Coral: ligar ou desligar as sugestões"
       }
     ],
     "configuration": {
@@ -70,7 +79,17 @@
         "truecoral.descrever": {
           "type": "boolean",
           "default": true,
-          "description": "A cada tecla, ao lado de cada linha: o que ela faz (— …) e o erro de escrita traduzido (✕ …). Não roda o código."
+          "description": "A cada tecla, numa coluna alinhada depois do código: o que cada linha faz (# …), e ao lado da linha o erro de escrita traduzido (✕ …). O mouse em cima mostra a frase inteira. Não roda o código."
+        },
+        "truecoral.setas": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ao salvar, setas por cima do código: quem chama quem, a volta do return, o laço que repete, o sim e o não de cada decisão, e o erro que cai no except."
+        },
+        "truecoral.sugestoes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ao salvar, uma lâmpada na margem onde uma forma do seu código tem um molde na documentação do Python. O texto cinza diz o que foi visto; o mouse em cima mostra a ficha: import, sintaxe, o que devolve e um exemplo com a saída."
         }
       }
     },
@@ -88,7 +107,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py && cp ../src/truecoral/leitura.py leitura.py && cp ../CHANGELOG.md CHANGELOG.md"
+    "vscode:prepublish": "cp ../src/truecoral/motor.py motor.py && cp ../src/truecoral/leitura.py leitura.py && cp ../src/truecoral/sugestoes.py sugestoes.py && cp ../CHANGELOG.md CHANGELOG.md"
   },
   "icon": "icone.png"
 }

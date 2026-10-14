@@ -23,6 +23,14 @@ Duas camadas na mesma linha:
   print(calculadora(1, 2))     › 3          — mostra na tela o que calculadora devolve com a = 1, b = 2
   ```
 
+No VS Code, mais duas camadas, ao salvar:
+
+- **as setas do fluxo** — por cima do código: quem chama quem, a volta do `return`, o laço que repete,
+  o `sim` e o `não` de cada decisão, o `raise` que cai no `except`;
+- **as sugestões** — uma forma do seu código que tem um molde na documentação oficial do Python
+  (`collections.Counter`, desempacotamento, encadeamento…): o que foi visto, em cinza, e a ficha com
+  import, sintaxe, o que devolve e um exemplo com a saída. Mostra o molde, não reescreve o seu código.
+
 Dois jeitos de ver, os mesmos programas por trás:
 
 - **no VS Code** — a leitura enquanto você digita; os valores ao salvar; o detalhe ao passar o mouse;
@@ -40,7 +48,7 @@ Dois jeitos de ver, os mesmos programas por trás:
 | `! …` | um fato que merece atenção: vazios (NaN) num DataFrame, um NaN |
 | `✕ Erro` | onde parou, com a explicação em português e a mensagem original |
 | `· não rodou` | linha que o caminho do programa nunca alcançou |
-| `— …` | **a leitura**: o que a linha faz, a cada tecla, sem rodar |
+| `— …` (no VS Code, `# …`) | **a leitura**: o que a linha faz, a cada tecla, sem rodar |
 | `✕ …` (a cada tecla) | **a leitura**: o erro de escrita traduzido — `faltou fechar o '('`, `esperava-se ']'`, `faltou o ':'` |
 
 **O código roda de verdade.** Se ele apaga ou grava arquivo, isso acontece. Há limite de tempo
@@ -49,9 +57,10 @@ Dois jeitos de ver, os mesmos programas por trás:
 ## Como funciona
 
 ```
-leitura.py  (só lê, a cada tecla)  ─┐
+leitura.py  (só lê, a cada tecla)  ─┐   + as ligações do fluxo e as sugestões (sugestoes.py)
 motor.py    (roda, ao salvar)      ─┴→  JSON  →  coral, no terminal
                                               →  a extensão do VS Code, que só desenha
+                                                 (fluxograma.js: onde cada seta passa na tela)
 ```
 
 A leitura e o motor são Python, só biblioteca padrão. A leitura nunca executa o seu código: ela
@@ -62,4 +71,4 @@ O motor roda com o Python do seu projeto (o `.venv` da pasta, o ambiente escolhi
 o `python3`) e acompanha cada linha com `sys.settrace`. A extensão é fina de propósito: se o
 Python mudar, o conserto é no motor — que é Python e tem teste.
 
-Status: 0.4.0, em teste. O que mudou: [CHANGELOG](CHANGELOG.md). Testado no Fedora 44 com Python 3.14 e VS Code 1.140.
+Status: 0.7.0, em teste. O que mudou: [CHANGELOG](CHANGELOG.md). Testado no Fedora 44 com Python 3.14 e 3.12 e VS Code 1.141.

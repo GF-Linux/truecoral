@@ -2,4 +2,4 @@
 
 O comando é  coral ; o motor (truecoral/motor.py) só usa a biblioteca padrão.
 """
-__version__ = "0.6.0"
+__version__ = "0.7.0"

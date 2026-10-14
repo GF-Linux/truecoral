@@ -1,5 +1,34 @@
 # Mudanças
 
+## 0.7.0
+
+- **as setas do fluxo, ao salvar**, desenhadas por cima do código, no próprio editor: a chamada sobe até
+  o `def` com o que chega (`vezes = 10 · vindo da linha 31`); o `return` volta tracejado para quem
+  chamou; o caminho em que a função termina sem `return` (num `except`, por exemplo) volta em vermelho
+  dizendo `None`; o laço volta para o `for` (`repete`); cada decisão marca o `sim` e o `não`; o `raise`
+  cai no `except` que o pega. Uma cor por função, nas cores do tema. A ordem das faixas é a que menos se
+  cruza, e cada cruzamento passa "por cima". Chamadas em linhas seguidas viram um pente, com um traço só
+  até a faixa. Um comentário longo não empurra as faixas. As setas nascem no Ctrl+S, acompanham as linhas
+  enquanto você digita, e se refazem no próximo Ctrl+S. Num arquivo com muitas funções, aparecem as da
+  função onde está o cursor (e mudam quando o cursor muda de função).
+- **as sugestões, ao salvar:** uma lâmpada discreta na margem, um pontilhado no pedaço e, numa linha vazia
+  ao lado, em cinza, o que foi visto. O mouse em cima abre a ficha com o molde da documentação oficial do
+  Python — precisa de import? a sintaxe, o que devolve, e um exemplo com a saída de cada linha, conferida
+  rodando —, a citação com a tradução e o link. A sugestão mostra o molde, nunca o seu código reescrito.
+  O catálogo começa com quatro: a mesma lista contada valor por valor (`collections.Counter`), a parte do
+  retorno pega pela posição (`f(...)[0]`, desempacotamento), a mesma chamada de novo com os mesmos
+  argumentos (que não mudaram no meio, e não em ramos que se excluem), e a função que devolve várias
+  coisas juntas que seguem juntas para as próximas (encadeamento).
+- **a descrição vira um comentário:** numa coluna alinhada depois das setas, `# o que a linha faz`, curta.
+  A história da variável (`; depois, recebe +1, quando…`, `(que nasceu valendo 0)`) foi para o mouse: a
+  linha diz o que faz, e a ligação com as outras linhas fica com as setas.
+- com as setas ligadas, os valores ao lado da linha têm um espaço; o que passa vira `…`, e o mouse mostra
+  inteiro.
+- `contar(pares, impares)` com os parâmetros `pares` e `impares`: a descrição diz `com pares, impares`, não
+  `com pares = pares, impares = impares`.
+- a leitura ficou cerca de 10 vezes mais rápida em arquivo grande (1.000 linhas: de 2 s para 0,2 s): o
+  recorte de cada pedaço do código dividia o arquivo inteiro de novo, a cada pedaço.
+
 ## 0.6.0
 
 - **a variável conta a própria história.** Na linha onde ela nasce, a descrição diz o que ela é e cada

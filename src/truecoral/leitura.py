@@ -20,6 +20,14 @@ import keyword
 import re
 import sys
 
+try:                                     # dentro do pacote (o comando coral) ou ao lado (a extensão)
+    from . import sugestoes as _sugestoes
+except ImportError:
+    try:
+        import sugestoes as _sugestoes
+    except ImportError:                  # sem o catálogo, a leitura segue sem sugestões
+        _sugestoes = None
+
 LIMITE = 120          # uma descrição maior que isto troca as partes de dentro pelo próprio código
 
 # ── 1. o erro de escrita, traduzido ─────────────────────────────────────────
@@ -262,6 +270,7 @@ class Leitor:
         self.fonte = fonte
         self.linhas = fonte.splitlines()
         self.saida = {}
+        self.curtas = {}       # linha → a frase sem a história e sem as condições (o mouse mostra a inteira)
         self.funcoes = {}      # nome → parâmetros, das funções definidas no próprio arquivo
         self.modulos = {}      # nome no código → módulo importado (import pandas as pd: pd → pandas)
         self.classes = {}      # nome da classe → {método: (parâmetros, tem return com valor)}
@@ -271,8 +280,23 @@ class Leitor:
         self.classe = None     # a classe onde a frase está
 
     # ── as partes ──
+    def segmento(self, no):
+        """O texto de um pedaço do código. O ast.get_source_segment refaz a divisão do arquivo inteiro em
+        linhas a cada chamada; aqui a divisão é feita uma vez por texto (a leitura roda a cada tecla)."""
+        if getattr(self, "_dividido", (None,))[0] is not self.fonte:
+            self._dividido = (self.fonte, [l.encode("utf-8") for l in self.fonte.split("\n")])
+        linhas = self._dividido[1]
+        a, b = getattr(no, "lineno", None), getattr(no, "end_lineno", None)
+        if a is None or b is None or b > len(linhas):
+            return None
+        ca, cb = no.col_offset, no.end_col_offset
+        if a == b:
+            return linhas[a - 1][ca:cb].decode("utf-8", errors="replace")
+        partes = [linhas[a - 1][ca:]] + linhas[a:b - 1] + [linhas[b - 1][:cb]]
+        return b"\n".join(partes).decode("utf-8", errors="replace")
+
     def cod(self, no):
-        texto = ast.get_source_segment(self.fonte, no)
+        texto = self.segmento(no)
         if texto is None:
             texto = ast.unparse(no)
         texto = " ".join(texto.split())
@@ -422,9 +446,7 @@ class Leitor:
             args = self.argumentos(no, p)
             params = self.funcoes.get(f.id)
             if params and not modelo:
-                nomeados = [f"{params[i]} = {self.cod(a)}" if i < len(params) else self.cod(a)
-                            for i, a in enumerate(no.args)]
-                args = nomeados + [f"{k.arg} = {self.cod(k.value)}" for k in no.keywords if k.arg]
+                args = [self.nomeados(no, params)] if (no.args or no.keywords) else []
             if modelo:
                 try:
                     return modelo(args)
@@ -508,6 +530,12 @@ class Leitor:
 
     def _local(self, nome):
         """A função escreve nesta variável? (sem global, é dela)"""
+        memo = self.__dict__.setdefault("_locais", {})
+        if (id(self.func), nome) not in memo:
+            memo[(id(self.func), nome)] = self._escreve(nome)
+        return memo[(id(self.func), nome)]
+
+    def _escreve(self, nome):
         for n in ast.walk(self.func):
             alvos = n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(
                 n, (ast.AugAssign, ast.AnnAssign, ast.For)) else []
@@ -536,9 +564,10 @@ class Leitor:
         return self.tipos.get(k) if k else None
 
     def nomeados(self, chamada, params):
-        partes = [f"{params[i]} = {self.cod(a)}" if i < len(params) else self.cod(a)
-                  for i, a in enumerate(chamada.args)]
-        return ", ".join(partes + [f"{k.arg} = {self.cod(k.value)}" for k in chamada.keywords if k.arg])
+        """'tamanho_maximo = 10'; quem passa o próprio nome ('pares = pares') aparece uma vez só: 'pares'."""
+        pares = [(params[i] if i < len(params) else None, self.cod(a)) for i, a in enumerate(chamada.args)]
+        pares += [(k.arg, self.cod(k.value)) for k in chamada.keywords if k.arg]
+        return ", ".join(v if p is None or p == v else f"{p} = {v}" for p, v in pares)
 
     def nasceu(self, k):
         """'que nasceu valendo 0 no __init__' — de onde a variável veio, dito curto."""
@@ -703,10 +732,14 @@ class Leitor:
         return texto
 
     # ── as frases ──
-    def por(self, n, texto):
+    def por(self, n, texto, curta=None):
         if n and texto:
             texto = contrair(" ".join(texto.split()))
             self.saida.setdefault(n, texto)
+            if curta:
+                curta = contrair(" ".join(curta.split()))
+                if curta != texto:
+                    self.curtas.setdefault(n, curta)
 
     def caber(self, monta):
         """Monta a frase; se ficar comprida demais, monta de novo com menos fundo."""
@@ -794,7 +827,8 @@ class Leitor:
             if k in self.vidas:
                 sinal = {ast.Add: "recebe +", ast.Sub: "recebe −", ast.Mult: "é multiplicado por ",
                          ast.Div: "é dividido por "}.get(type(no.op), "é atualizado com ")
-                self.por(n, f"{alvo}{self.nasceu(k)} {sinal}{v}{self.quando(self.condicoes_da_linha(n, k))}")
+                self.por(n, f"{alvo}{self.nasceu(k)} {sinal}{v}{self.quando(self.condicoes_da_linha(n, k))}",
+                         curta=f"{alvo} {sinal}{v}")
             else:
                 self.por(n, {ast.Add: f"soma {v} a {alvo}", ast.Sub: f"tira {v} de {alvo}",
                              ast.Mult: f"multiplica {alvo} por {v}", ast.Div: f"divide {alvo} por {v}"}.get(
@@ -808,9 +842,10 @@ class Leitor:
                 f = v.func
                 k = self.chave(f.value) if isinstance(f, ast.Attribute) and isinstance(
                     f.value, (ast.Name, ast.Attribute)) else None
+                curta = texto
                 if k in self.vidas and any(m["linha"] == n for m in self.vidas[k]["mudancas"]):
                     texto = f"{self.cod(f.value)}{self.nasceu(k)}: {texto}{self.quando(self.condicoes_da_linha(n, k))}"
-                self.por(n, texto)
+                self.por(n, texto, curta=curta)
             else:
                 self.por(n, self.caber(lambda pr: f"calcula {self.e(v, pr)} (e não guarda)"))
         elif isinstance(no, (ast.For, ast.AsyncFor)):
@@ -827,8 +862,8 @@ class Leitor:
             self.senao(no, "senão (se o laço terminou sem break)")
         elif isinstance(no, ast.If):
             eh_elif = n and self.linhas[n - 1].strip().startswith("elif")
-            self.por(n, self.anotar(self.caber(lambda pr: f"{'senão, se' if eh_elif else 'se'} {self.e(no.test, pr)}"),
-                                    no.test))
+            pergunta = self.caber(lambda pr: f"{'senão, se' if eh_elif else 'se'} {self.e(no.test, pr)}")
+            self.por(n, self.anotar(pergunta, no.test), curta=pergunta)
             self.corpo(no.body)
             if no.orelse and isinstance(no.orelse[0], ast.If) and \
                     self.linhas[no.orelse[0].lineno - 1].strip().startswith("elif"):
@@ -899,7 +934,8 @@ class Leitor:
                 return False
             lugar = f"na lista {self.cod(alvo.value)}" if self.e_lista(alvo.value) else f"em {self.cod(alvo.value)}"
             nucleo = self.caber(lambda pr: f"a posição {self.cod(alvo.slice)} passa a guardar {self.e(valor, pr)}")
-            self.por(n, f"{lugar}{self.nasceu(k)}, {nucleo}{self.quando(self.condicoes_da_linha(n, k))}")
+            self.por(n, f"{lugar}{self.nasceu(k)}, {nucleo}{self.quando(self.condicoes_da_linha(n, k))}",
+                     curta=f"{lugar}, {nucleo}")
             return True
         k = self.chave(alvo) if isinstance(alvo, (ast.Name, ast.Attribute)) else None
         v = self.vidas.get(k)
@@ -908,7 +944,8 @@ class Leitor:
         nome = self.cod(alvo)
         if v["nasce"] != n:                                   # já existia: mudou
             nucleo = self.caber(lambda pr: f"passa a valer {self.e(valor, pr)}")
-            self.por(n, f"{nome}{self.nasceu(k)} {nucleo}{self.quando(self.condicoes_da_linha(n, k))}")
+            self.por(n, f"{nome}{self.nasceu(k)} {nucleo}{self.quando(self.condicoes_da_linha(n, k))}",
+                     curta=f"{nome} {nucleo}")
             return True
         if isinstance(valor, ast.Constant):
             o_que = f"vale {self.cod(valor)}"
@@ -923,7 +960,7 @@ class Leitor:
             texto = f"{nome}: variável de valor {self.cod(valor)}"
         else:
             texto = self.caber(lambda pr: f"{nome}: variável que {o_que or 'guarda ' + self.e(valor, pr)}")
-        self.por(n, texto + self.biografia(k))
+        self.por(n, texto + self.biografia(k), curta=texto)
         return True
 
     def senao(self, no, texto):
@@ -932,6 +969,185 @@ class Leitor:
             linha = self.linha_com(ultimo.end_lineno, no.orelse[0].lineno - 1, "else")
             self.por(linha, texto)
             self.corpo(no.orelse)
+
+
+# ── 2b. o fluxo: o que liga com o quê, para as setas ───────────────────────
+#
+# Só as ligações; onde cada seta passa na tela é a extensão quem decide (ela sabe o tamanho de cada
+# linha, os valores ao lado e a fonte do editor). As colunas são em letras, não em bytes.
+
+def _cai(corpo):
+    """As linhas de onde a execução cai pelo fim deste bloco (sem return nem raise). [] = nunca cai."""
+    if not corpo:
+        return []
+    ultimo = corpo[-1]
+    if isinstance(ultimo, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+        return []
+    if isinstance(ultimo, ast.If):
+        return _cai(ultimo.body) + (_cai(ultimo.orelse) if ultimo.orelse else [ultimo.lineno])
+    if isinstance(ultimo, ast.While) and isinstance(ultimo.test, ast.Constant) and ultimo.test.value is True \
+            and not any(isinstance(x, ast.Break) for x in ast.walk(ultimo)):
+        return []
+    if isinstance(ultimo, (ast.For, ast.AsyncFor, ast.While)):
+        return [ultimo.lineno] + _cai(ultimo.orelse)
+    if isinstance(ultimo, (ast.With, ast.AsyncWith)):
+        return _cai(ultimo.body)
+    if isinstance(ultimo, ast.Try) or type(ultimo).__name__ == "TryStar":
+        caem = _cai(ultimo.orelse) if ultimo.orelse else _cai(ultimo.body)
+        for h in ultimo.handlers:
+            caem += _cai(h.body)
+        if ultimo.finalbody and not _cai(ultimo.finalbody):
+            return []
+        return caem
+    if hasattr(ast, "Match") and isinstance(ultimo, ast.Match):
+        return [x for c in ultimo.cases for x in _cai(c.body)] + [ultimo.lineno]
+    return [ultimo.end_lineno or ultimo.lineno]
+
+
+def _pega(handler, nome):
+    """Este except pega um erro com este nome? Os do Python, pela família: ValueError é um Exception."""
+    if handler.type is None:
+        return True
+    import builtins
+    tipos = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    erro = getattr(builtins, nome, None) if nome else None
+    for t in tipos:
+        tn = t.id if isinstance(t, ast.Name) else None
+        if tn and tn == nome:
+            return True
+        pai = getattr(builtins, tn, None) if tn else None
+        if isinstance(erro, type) and isinstance(pai, type) and issubclass(erro, pai):
+            return True
+    return False
+
+
+def fluxo(arvore, leitor):
+    """{funcoes, lacos, decisoes, erros, inicio}: as ligações do arquivo, para as setas."""
+    pai = {}
+    for no in ast.walk(arvore):
+        for filho in ast.iter_child_nodes(no):
+            pai[filho] = no
+
+    def dono(no):
+        p = pai.get(no)
+        while p is not None and not isinstance(p, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            p = pai.get(p)
+        return p
+
+    def classe_de_func(f):
+        p = pai.get(f)
+        return p.name if isinstance(p, ast.ClassDef) else None
+
+    def letra(n, col):
+        texto = leitor.linhas[n - 1] if 0 < n <= len(leitor.linhas) else ""
+        return len(texto.encode("utf-8")[:col].decode("utf-8", errors="ignore"))
+
+    defs = {}
+    for no in ast.walk(arvore):
+        if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            cls = classe_de_func(no)
+            defs.setdefault(f"{cls}.{no.name}" if cls else no.name, no)
+
+    def alvo_da_chamada(c):
+        f = c.func
+        if isinstance(f, ast.Name):
+            if f.id in defs:
+                return f.id
+            if f.id in leitor.classes and f"{f.id}.__init__" in defs:      # MyArray(10) roda o __init__
+                return f"{f.id}.__init__"
+            return None
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+            d = dono(c)
+            if f.value.id == "self" and d is not None:
+                cls = classe_de_func(d)
+                return f"{cls}.{f.attr}" if cls and f"{cls}.{f.attr}" in defs else None
+            cls = leitor.tipos.get((id(d) if d is not None else "mod", f.value.id)) or \
+                leitor.tipos.get(("mod", f.value.id))
+            return f"{cls}.{f.attr}" if cls and f"{cls}.{f.attr}" in defs else None
+        return None
+
+    chamadas = {}
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Call):
+            alvo = alvo_da_chamada(no)
+            if alvo and dono(no) is not defs[alvo]:              # recursão: fica sem seta
+                chamadas.setdefault(alvo, []).append(no)
+
+    funcoes = []
+    for chave, f in defs.items():
+        if chave not in chamadas:
+            continue
+        params = [a.arg for a in f.args.posonlyargs + f.args.args if a.arg not in ("self", "cls")]
+        rets, pilha = [], list(f.body)
+        while pilha:
+            no = pilha.pop()
+            if isinstance(no, ast.Return) and no.value is not None:
+                rets.append(no)
+            if not isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                pilha.extend(ast.iter_child_nodes(no))
+        rets.sort(key=lambda r: r.lineno)
+        devolve = bool(rets) and f.name != "__init__"
+        caem = []
+        if devolve:
+            em_except = set()
+            for no in ast.walk(f):
+                if isinstance(no, ast.ExceptHandler):
+                    em_except.update(range(no.lineno, (no.end_lineno or no.lineno) + 1))
+            caem = [{"linha": n, "motivo": "se deu erro" if n in em_except else "sem return"} for n in _cai(f.body)]
+        funcoes.append({
+            "nome": f.name, "chave": chave, "linha": f.lineno,
+            "chamadas": [{"linha": c.lineno, "args": leitor.nomeados(c, params)}
+                         for c in sorted(chamadas[chave], key=lambda c: (c.lineno, c.col_offset))],
+            "retornos": [{"linha": r.lineno, "texto": leitor.cod(r.value)} for r in rets] if devolve else [],
+            "caem": caem,
+        })
+    funcoes.sort(key=lambda x: x["linha"])
+
+    lacos, decisoes, erros = [], [], []
+    for no in ast.walk(arvore):
+        if isinstance(no, (ast.For, ast.AsyncFor, ast.While)) and no.body:
+            lacos.append({"linha": no.lineno, "col": letra(no.lineno, no.col_offset),
+                          "fim": no.body[-1].end_lineno or no.body[-1].lineno})
+        elif isinstance(no, ast.If) and no.body:
+            d = {"linha": no.lineno, "col": letra(no.lineno, no.col_offset), "sim": no.body[0].lineno, "nao": None}
+            elif_depois = no.orelse and isinstance(no.orelse[0], ast.If) and len(no.orelse) == 1 and \
+                leitor.linhas[no.orelse[0].lineno - 1].strip().startswith("elif")
+            if no.orelse and not elif_depois:
+                d["nao"] = no.orelse[0].lineno
+            decisoes.append(d)
+        elif isinstance(no, ast.Try) or type(no).__name__ == "TryStar":
+            pilha = list(no.body)
+            while pilha:
+                x = pilha.pop()
+                if isinstance(x, ast.Raise) and x.exc is not None:
+                    e = x.exc.func if isinstance(x.exc, ast.Call) else x.exc
+                    nome = e.id if isinstance(e, ast.Name) else None
+                    h = next((h for h in no.handlers if _pega(h, nome)), None)
+                    if h is not None:
+                        erros.append({"de": x.lineno, "col": letra(x.lineno, x.col_offset), "para": h.lineno,
+                                      "col_try": letra(no.lineno, no.col_offset)})
+                if not isinstance(x, (ast.Try, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)) \
+                        and type(x).__name__ != "TryStar":
+                    pilha.extend(ast.iter_child_nodes(x))
+
+    inicio, viu_definicao = None, False
+    for no in arvore.body:
+        if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            viu_definicao = True
+        elif isinstance(no, (ast.Import, ast.ImportFrom)) or (
+                isinstance(no, ast.Expr) and isinstance(no.value, ast.Constant) and isinstance(no.value.value, str)):
+            continue
+        else:
+            inicio = no.lineno if viu_definicao else None
+            break
+
+    corpos = sorted(({"nome": f.name, "linha": f.lineno, "fim": f.end_lineno or f.lineno} for f in defs.values()),
+                    key=lambda x: x["linha"])
+    return {"funcoes": funcoes, "corpos": corpos,
+            "lacos": sorted(lacos, key=lambda x: x["linha"]),
+            "decisoes": sorted(decisoes, key=lambda x: x["linha"]),
+            "erros": sorted(erros, key=lambda x: x["de"]),
+            "inicio": inicio}
 
 
 # ── 3. ler um arquivo que pode estar quebrado ──────────────────────────────
@@ -979,6 +1195,7 @@ def ler(fonte):
             vistos.add((n, e.msg))
             linhas = _neutralizar(linhas, n, e.msg)
     leitor = Leitor(fonte)
+    ligacoes, sugestoes = None, []
     if arvore is not None:
         for no in ast.walk(arvore):
             if isinstance(no, ast.Import):
@@ -999,7 +1216,21 @@ def ler(fonte):
                 leitor.frase(no)
             except Exception:           # uma frase que a leitura não soube dizer não derruba as outras
                 pass
-    resultado = {"linhas": {str(n): {"descricao": t} for n, t in sorted(leitor.saida.items())}, "erro": erro}
+        leitor.func = leitor.classe = None
+        try:
+            ligacoes = fluxo(arvore, leitor)
+        except Exception:
+            ligacoes = None
+        try:
+            sugestoes = _sugestoes.sugerir(arvore, leitor.fonte) if _sugestoes else []
+        except Exception:
+            sugestoes = []
+    linhas_saida = {}
+    for n, t in sorted(leitor.saida.items()):
+        linhas_saida[str(n)] = {"descricao": t}
+        if n in leitor.curtas:
+            linhas_saida[str(n)]["curta"] = leitor.curtas[n]
+    resultado = {"linhas": linhas_saida, "erro": erro, "fluxo": ligacoes, "sugestoes": sugestoes}
     if erro:
         resultado["linhas"].pop(str(erro["linha"]), None)
     return resultado
